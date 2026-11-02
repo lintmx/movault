@@ -60,11 +60,18 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [toast])
 
-  async function save(next: Library) {
-    if (saving.current) return false
+  async function save(next: Library, replace = false) {
+    if (saving.current || !library) return false
+    if (error && !replace) {
+      setToast('未保存：本地数据尚未成功读取，请刷新重试，或在数据管理中从备份覆盖恢复。')
+      return false
+    }
     saving.current = true
     try {
-      await saveLibrary(next)
+      if (!await saveLibrary(next, error && replace ? undefined : library)) {
+        setToast('未保存：本地数据已在其他页面更新，请刷新后重试。')
+        return false
+      }
       setLibrary(next)
       setError('')
       return true

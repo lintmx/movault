@@ -1,15 +1,12 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
-  Camera,
   Check,
   CircleCheck,
-  FileImage,
   Film,
   ImagePlus,
   Info,
   Plus,
   RefreshCw,
-  ScanLine,
   Trash2,
 } from 'lucide-react'
 import {
@@ -26,6 +23,7 @@ import {
   type TicketType,
 } from './data'
 import { Badge, Field, Header, Poster, Sheet } from './ui'
+import { OcrScanner } from './OcrScanner'
 
 type FormProps = {
   library: Library
@@ -311,12 +309,13 @@ export function TicketForm({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [batch, setBatch] = useState('')
   const [rows, setRows] = useState<BatchRow[] | null>(null)
-  const [photo, setPhoto] = useState('')
+  const [ocrReady, setOcrReady] = useState(false)
+  const [scanReset, setScanReset] = useState(0)
+  const [submitting, setSubmitting] = useState(false)
+  const submitLock = useRef(false)
   const [switching, setSwitching] = useState(false)
-  const camera = useRef<HTMLInputElement>(null)
-  const album = useRef<HTMLInputElement>(null)
   const numberInput = useRef<HTMLInputElement>(null)
-  const back = () => navigate(`/movies/${movie.id}`)
+  const back = () => { if (!submitLock.current) navigate(`/movies/${movie.id}`) }
   const existing = new Set(
     library.tickets
       .filter((item) => item.movieId === movie.id && item.id !== ticket?.id)
@@ -370,6 +369,7 @@ export function TicketForm({
   }
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (submitLock.current) return
     if (mode === 'batch' && !rows) {
       parseBatch()
       return
@@ -390,8 +390,8 @@ export function TicketForm({
     if (mode !== 'batch') {
       if (!/^\d{10}$/.test(number)) nextErrors.number = '購入番号应为 10 位数字'
       if (!/^\d{4}$/.test(pin)) nextErrors.pin = '暗証番号应为 4 位数字'
-      if (mode === 'photo' && !photo)
-        nextErrors.photo = '请先拍照或选择券面图片'
+      if (mode === 'photo' && !ocrReady)
+        nextErrors.photo = '请先完成识别并核对两个号码区域'
     } else if (!validRows.length)
       nextErrors.batch = '没有可以保存的有效记录，请修正下方错误'
     setErrors(nextErrors)
@@ -413,21 +413,27 @@ export function TicketForm({
       createdAt: ticket?.createdAt ?? now,
       updatedAt: now,
     }))
-    if (
-      !(await save({
+    submitLock.current = true
+    setSubmitting(true)
+    let saved = false
+    try {
+      saved = await save({
         ...library,
         tickets: ticket
-          ? library.tickets.map((item) =>
-              item.id === ticket.id ? added[0] : item,
-            )
+          ? library.tickets.map((item) => item.id === ticket.id ? added[0] : item)
           : [...library.tickets, ...added],
-      }))
-    ) return
+      })
+    } finally {
+      submitLock.current = false
+      setSubmitting(false)
+    }
+    if (!saved) return
     notify(ticket ? '前售券已更新' : `已保存 ${added.length} 张前售券`)
-    if (mode === 'single' && continuous) {
+    if ((mode === 'single' || mode === 'photo') && continuous) {
       setNumber('')
       setPin('')
-      numberInput.current?.focus()
+      if (mode === 'photo') { setOcrReady(false); setScanReset((value) => value + 1) }
+      else numberInput.current?.focus()
     } else if (mode === 'batch' && checkedRows.some((row) => row.error)) {
       const remaining = checkedRows.filter((row) => row.error)
       setBatch(
@@ -437,20 +443,6 @@ export function TicketForm({
       )
       setRows(remaining)
     } else back()
-  }
-  async function pickPhoto(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (file) {
-      try {
-        setPhoto(await readImage(file))
-        setNumber('')
-        setPin('')
-        setErrors({})
-      } catch (error) {
-        notify((error as Error).message)
-      }
-    }
-    event.target.value = ''
   }
   function changeType(next: TicketType) {
     setType(next)
@@ -466,12 +458,6 @@ export function TicketForm({
         hint={`${number.length} / 10 位`}
         error={errors.number}
       >
-        {mode === 'photo' && photo && (
-          <div className="scan-preview">
-            <img src={photo} alt="券面原图，请核对購入番号" />
-            <span>券面原图</span>
-          </div>
-        )}
         <input
           ref={numberInput}
           id="purchase-number"
@@ -492,12 +478,6 @@ export function TicketForm({
         hint={`${pin.length} / 4 位`}
         error={errors.pin}
       >
-        {mode === 'photo' && photo && (
-          <div className="scan-preview">
-            <img src={photo} alt="券面原图，请核对暗証番号" />
-            <span>券面原图</span>
-          </div>
-        )}
         <input
           id="ticket-pin"
           type="text"
@@ -537,7 +517,10 @@ export function TicketForm({
                 key={item}
                 aria-pressed={mode === item}
                 className={mode === item ? 'selected' : ''}
+                disabled={submitting}
                 onClick={() => {
+                  if (item === mode) return
+                  if (mode === 'photo' || item === 'photo') { setNumber(''); setPin(''); setOcrReady(false) }
                   setMode(item)
                   setErrors({})
                   if (item === 'photo') changeType('physical')
@@ -593,70 +576,12 @@ export function TicketForm({
               <span>拍照识别仅适用于实体券，每张兑换 1 次。</span>
             </div>
           )}
-          {mode === 'photo' && (
-            <>
-              <div className="photo-actions">
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() => camera.current?.click()}
-                >
-                  <Camera size={20} />
-                  {photo ? '重新拍照' : '直接拍照'}
-                </button>
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() => album.current?.click()}
-                >
-                  <FileImage size={20} />
-                  从相册选择
-                </button>
-              </div>
-              <input
-                hidden
-                ref={camera}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                capture="environment"
-                onChange={pickPhoto}
-              />
-              <input
-                hidden
-                ref={album}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={pickPhoto}
-              />
-              {photo ? (
-                <div className="notice">
-                  <Info size={16} />
-                  <span>
-                    自动识别尚未接入。请对照原图填写号码，确认后保存。
-                  </span>
-                </div>
-              ) : (
-                <>
-                  <p className="hint">
-                    请刮开涂层并平整放置，确保購入番号与暗証番号清晰、无反光。
-                  </p>
-                  <div className="scan-empty">
-                    <ScanLine size={32} />
-                    <h2>尚未拍摄或上传券面照片</h2>
-                    <p>选择拍照或从相册选取后，核对并填写凭证。</p>
-                  </div>
-                  {errors.photo && (
-                    <p className="field-error" role="alert">
-                      {errors.photo}
-                    </p>
-                  )}
-                </>
-              )}
-            </>
-          )}
-          {mode === 'single' || (mode === 'photo' && photo)
-            ? credentials
-            : null}
+          {mode === 'photo' && <OcrScanner
+            number={number} pin={pin} onNumber={setNumber} onPin={setPin}
+            onReady={setOcrReady} resetToken={scanReset} disabled={submitting} errors={errors}
+          />}
+          {mode === 'photo' && errors.photo && <p className="field-error" role="alert">{errors.photo}</p>}
+          {mode === 'single' ? credentials : null}
           {mode !== 'batch' && duplicate && (
             <p className="notice pending-text" role="status">
               此电影下已有相同的購入番号与暗証番号，请确认是否重复录入。
@@ -781,7 +706,7 @@ export function TicketForm({
               )}
             </Field>
           )}
-          {(mode !== 'photo' || photo) && (
+          {(mode !== 'photo' || ocrReady) && (
             <Field
               id="ticket-price"
               label={
@@ -811,7 +736,7 @@ export function TicketForm({
               </p>
             </Field>
           )}
-          {mode === 'single' && (
+          {(mode === 'single' || mode === 'photo') && (
             <div className="entry-options">
               {!ticket && (
                 <>
@@ -873,7 +798,7 @@ export function TicketForm({
           className="button primary grow"
           form="ticket-form"
           type="submit"
-          disabled={mode === 'photo' && !photo}
+          disabled={submitting || (mode === 'photo' && !ocrReady)}
         >
           {ticket
             ? '保存修改'
@@ -927,6 +852,7 @@ export function TicketForm({
               <button
                 key={item.id}
                 className="movie-option"
+                disabled={submitting}
                 onClick={() => {
                   setSwitching(false)
                   navigate(`/movies/${item.id}/add`)

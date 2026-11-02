@@ -17,7 +17,7 @@ export function DataManagement({
   notify,
 }: {
   library: Library
-  save: (library: Library) => Promise<boolean>
+  save: (library: Library, replace?: boolean) => Promise<boolean>
   notify: (message: string) => void
 }) {
   const [file, setFile] = useState<{
@@ -119,7 +119,7 @@ export function DataManagement({
         tickets: [...library.tickets, ...additions],
       }
     }
-    if (await save(next)) {
+    if (await save(next, strategy === 'replace')) {
       setFile(null)
       setConfirm(false)
       notify(

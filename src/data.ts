@@ -23,7 +23,6 @@ export type Movie = {
 }
 export type Library = { movies: Movie[]; tickets: Ticket[] }
 
-export const storageKey = 'movault-library-v1'
 export const schemaVersion = 1
 export const timestamp = () => new Date().toISOString()
 export const statuses: Status[] = ['available', 'pending', 'used']
@@ -178,14 +177,33 @@ function openDatabase(): Promise<IDBDatabase> {
   })
 }
 
-export async function saveLibrary(library: Library) {
+export async function saveLibrary(library: Library, previous?: Library) {
   const database = await openDatabase()
   try {
-    await new Promise<void>((resolve, reject) => {
+    return await new Promise<boolean>((resolve, reject) => {
       const transaction = database.transaction('library', 'readwrite')
-      transaction.oncomplete = () => resolve()
-      transaction.onabort = () => reject(transaction.error)
-      transaction.objectStore('library').put({ version: schemaVersion, ...library }, 'current')
+      let conflict = false
+      transaction.oncomplete = () => resolve(true)
+      transaction.onabort = () => conflict ? resolve(false) : reject(transaction.error)
+      const store = transaction.objectStore('library')
+      const request = store.get('current')
+      request.onsuccess = () => {
+        if (previous) {
+          try {
+            const current = request.result === undefined
+              ? { movies: [], tickets: [] }
+              : parseLibrary(JSON.stringify(request.result))
+            conflict = JSON.stringify(current) !== JSON.stringify(previous)
+          } catch {
+            conflict = true
+          }
+          if (conflict) {
+            transaction.abort()
+            return
+          }
+        }
+        store.put({ version: schemaVersion, ...library }, 'current')
+      }
     })
   } finally {
     database.close()
@@ -211,18 +229,12 @@ export async function readLibrary() {
     }
     if (stored !== undefined) {
       data = parseLibrary(JSON.stringify(stored))
-      if (JSON.stringify(stored) !== JSON.stringify({ version: schemaVersion, ...data }))
-        await saveLibrary(data)
-      return { data, error: '' }
     }
-    const saved = localStorage.getItem(storageKey)
-    data = saved ? parseLibrary(saved) : { movies: [], tickets: [] }
-    if (saved) await saveLibrary(data)
     return { data, error: '' }
   } catch {
     return {
       data,
-      error: '本地数据无法读取或迁移，尚未删除原数据。请重试或从备份恢复。',
+      error: '本地数据无法读取，请重试或从备份恢复。',
     }
   }
 }
