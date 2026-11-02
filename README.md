@@ -17,9 +17,9 @@ pnpm dev
 
 ```sh
 pnpm typecheck # TypeScript 类型检查
-pnpm lint      # ESLint 检查
+pnpm lint      # Oxlint 检查
 pnpm build     # 类型检查并构建到 dist/
 pnpm preview   # 本地预览构建产物，需先运行 build
 ```
 
-保留官方 TypeScript 配置并显式启用严格模式。当前模板默认使用 Oxlint，本项目按要求采用官方模板此前的 ESLint 配置；TypeScript 使用 ESLint 工具链支持的稳定版本 6.0.3。
+沿用官方模板的 Oxlint 和 TypeScript 配置，并显式启用 TypeScript 严格模式。
