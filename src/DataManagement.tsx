@@ -15,10 +15,18 @@ export function DataManagement({
   library,
   save,
   notify,
+  needsBackup,
+  onExported,
+  onExportingChange,
+  onShowSafety,
 }: {
   library: Library
   save: (library: Library, replace?: boolean) => Promise<boolean>
   notify: (message: string) => void
+  needsBackup: boolean
+  onExported: () => Promise<boolean>
+  onExportingChange: (value: boolean) => void
+  onShowSafety: () => void
 }) {
   const [file, setFile] = useState<{
     name: string
@@ -29,6 +37,11 @@ export function DataManagement({
   const [error, setError] = useState('')
   const [confirm, setConfirm] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const exportLock = useRef(false)
+  const [prepared, setPrepared] = useState<{ source: Library; movies: Library['movies'] } | null>(null)
+  const [prepareError, setPrepareError] = useState(false)
+  const [prepareAttempt, setPrepareAttempt] = useState(0)
+  const [shareFailed, setShareFailed] = useState(false)
   const [offlineReady, setOfflineReady] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -37,6 +50,27 @@ export function DataManagement({
       void navigator.serviceWorker.ready.then(() => { if (active) setOfflineReady(true) })
     return () => { active = false }
   }, [])
+  useEffect(() => {
+    let active = true
+    void Promise.all(library.movies.map(async (movie) => {
+      if (!movie.poster.startsWith('/posters/')) return movie
+      const response = await fetch(movie.poster)
+      if (!response.ok) throw new Error('海报读取失败')
+      return { ...movie, poster: await readImage(await response.blob()) }
+    })).then((movies) => {
+      if (active) {
+        setPrepared({ source: library, movies })
+        setPrepareError(false)
+        setShareFailed(false)
+      }
+    }).catch(() => {
+      if (active) {
+        setPrepared(null)
+        setPrepareError(true)
+      }
+    })
+    return () => { active = false }
+  }, [library, prepareAttempt])
   const knownIds = new Set(library.tickets.map((ticket) => ticket.id))
   const knownCredentials = new Set(library.tickets.map((ticket) =>
     credentialKey(ticket.movieId, ticket.number, ticket.pin)))
@@ -47,29 +81,55 @@ export function DataManagement({
     if (knownCredentials.has(key)) duplicateImports++
     knownCredentials.add(key)
   }
-  async function exportData() {
+  async function exportData(downloadOnly = false) {
+    if (exportLock.current || prepared?.source !== library) return
+    exportLock.current = true
     setExporting(true)
+    onExportingChange(true)
+    setShareFailed(false)
     try {
-      const movies = await Promise.all(library.movies.map(async (movie) => {
-        if (!movie.poster.startsWith('/posters/')) return movie
-        const response = await fetch(movie.poster)
-        if (!response.ok) throw new Error('海报读取失败，请联网重试或重新上传海报。')
-        return { ...movie, poster: await readImage(await response.blob()) }
-      }))
-      const backup = { version: schemaVersion, exportedAt: new Date().toISOString(), movies, tickets: library.tickets }
-      const url = URL.createObjectURL(
-        new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }),
+      const now = new Date()
+      const pad = (value: number) => String(value).padStart(2, '0')
+      const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      const time = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`
+      const random = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0')
+      const backup = { version: schemaVersion, exportedAt: now.toISOString(), movies: prepared.movies, tickets: library.tickets }
+      const backupFile = new File(
+        [JSON.stringify(backup, null, 2)],
+        `movault_backup_${date}_${time}_${random}.json`,
+        { type: 'application/json' },
       )
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `movault_backup_${new Date().toLocaleDateString('en-CA')}.json`
-      anchor.click()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      notify('已生成 JSON 备份')
-    } catch {
-      notify('备份未导出：无法读取海报，请联网重试或重新上传海报。')
+      const shared = !downloadOnly && !!navigator.share && !!navigator.canShare?.({ files: [backupFile] })
+      if (shared) {
+        await navigator.share({ files: [backupFile], title: 'Movault 本地备份' })
+      } else {
+        const url = URL.createObjectURL(backupFile)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = backupFile.name
+        document.body.append(anchor)
+        anchor.click()
+        anchor.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+      }
+      try {
+        const recorded = await onExported()
+        notify(!recorded ? '本地数据已在其他页面更新，本次仅导出了旧版本，请刷新后重新导出。'
+          : shared ? '备份已交给系统分享，请确认已保存到本机文件夹。' : '已发起备份下载，请确认文件已保存到本机。')
+      } catch {
+        notify('备份已发起，但无法记录导出状态，下次进入仍会提醒。请确认文件已保存。')
+      }
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === 'AbortError') {
+        notify('已取消分享，仍会提醒备份。')
+      } else {
+        setShareFailed(true)
+        notify('备份未导出，请重试或使用「直接下载」。')
+      }
     } finally {
+      exportLock.current = false
       setExporting(false)
+      onExportingChange(false)
     }
   }
   async function pickFile(event: ChangeEvent<HTMLInputElement>) {
@@ -150,10 +210,28 @@ export function DataManagement({
         <section className="data-section">
           <h2>导出备份</h2>
           <p>保存全部电影、海报、凭证号码、兑换状态、价格与备注。</p>
-          <button className="button secondary" onClick={exportData} disabled={exporting}>
-            <Download size={18} />
-            {exporting ? '正在导出…' : '导出 JSON'}
-          </button>
+          <p>分享时选择「存储到文件」→「在我的 iPhone / iPad」，或 Android 本地文件夹；不支持文件分享时会下载，无需云盘。</p>
+          <p className={needsBackup ? 'backup-pending' : 'hint'} role="status">
+            {needsBackup ? '当前数据有尚未导出的变更。' : '当前没有待导出的变更。'}
+            导出后请检查本机文件，浏览器无法确认最终保存位置。
+          </p>
+          {prepareError ? (
+            <>
+              <p className="field-error" role="alert">无法准备完整备份：请联网重试，或重新上传无法读取的海报。</p>
+              <button className="button secondary" onClick={() => {
+                setPrepareError(false)
+                setPrepareAttempt((value) => value + 1)
+              }}>重试准备备份</button>
+            </>
+          ) : (
+            <button className="button secondary" onClick={() => exportData()}
+              disabled={exporting || prepared?.source !== library}>
+              <Download size={18} />
+              {exporting ? '正在导出…' : prepared?.source !== library ? '正在准备备份…' : '导出 JSON'}
+            </button>
+          )}
+          {shareFailed && <button className="text-button primary-text backup-download" disabled={exporting || prepared?.source !== library}
+            onClick={() => exportData(true)}>直接下载</button>}
         </section>
         <section className="data-section">
           <h2>导入备份</h2>
@@ -271,6 +349,11 @@ export function DataManagement({
               </button>
             </>
           )}
+        </section>
+        <section className="data-section">
+          <h2>数据保留与存储保护</h2>
+          <p>查看当前平台的清理规则、添加主屏幕的方法，以及存储保护申请。</p>
+          <button className="button secondary" onClick={onShowSafety}><Info size={18} />查看数据安全说明</button>
         </section>
         <p className="hint" role="status">
           {offlineReady ? '离线资源已就绪，可断网查看和管理前售券。'

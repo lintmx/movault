@@ -180,10 +180,11 @@ function openDatabase(): Promise<IDBDatabase> {
 export async function saveLibrary(library: Library, previous?: Library) {
   const database = await openDatabase()
   try {
-    return await new Promise<boolean>((resolve, reject) => {
+    return await new Promise<string | false>((resolve, reject) => {
       const transaction = database.transaction('library', 'readwrite')
+      let revision = crypto.randomUUID()
       let conflict = false
-      transaction.oncomplete = () => resolve(true)
+      transaction.oncomplete = () => resolve(revision)
       transaction.onabort = () => conflict ? resolve(false) : reject(transaction.error)
       const store = transaction.objectStore('library')
       const request = store.get('current')
@@ -201,8 +202,14 @@ export async function saveLibrary(library: Library, previous?: Library) {
             transaction.abort()
             return
           }
+          if (JSON.stringify(library) === JSON.stringify(previous)) {
+            const revisionRequest = store.get('revision')
+            revisionRequest.onsuccess = () => { revision = revisionRequest.result ?? '' }
+            return
+          }
         }
         store.put({ version: schemaVersion, ...library }, 'current')
+        store.put(revision, 'revision')
       }
     })
   } finally {
@@ -212,17 +219,26 @@ export async function saveLibrary(library: Library, previous?: Library) {
 
 export async function readLibrary() {
   let data: Library = { movies: [], tickets: [] }
+  let revision = ''
+  let exportedRevision: string | null = null
+  let noticeSeen = false
   try {
     const database = await openDatabase()
     let stored: Library | undefined
     try {
-      stored = await new Promise<Library | undefined>((resolve, reject) => {
-        const request = database
-          .transaction('library', 'readonly')
-          .objectStore('library')
-          .get('current')
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction('library', 'readonly')
+        const store = transaction.objectStore('library')
+        const libraryRequest = store.get('current')
+        libraryRequest.onsuccess = () => { stored = libraryRequest.result }
+        const revisionRequest = store.get('revision')
+        revisionRequest.onsuccess = () => { revision = revisionRequest.result ?? '' }
+        const exportRequest = store.get('exportedRevision')
+        exportRequest.onsuccess = () => { exportedRevision = exportRequest.result ?? null }
+        const noticeRequest = store.get('noticeSeen')
+        noticeRequest.onsuccess = () => { noticeSeen = noticeRequest.result === true }
+        transaction.oncomplete = () => resolve()
+        transaction.onabort = () => reject(transaction.error)
       })
     } finally {
       database.close()
@@ -230,12 +246,37 @@ export async function readLibrary() {
     if (stored !== undefined) {
       data = parseLibrary(JSON.stringify(stored))
     }
-    return { data, error: '' }
+    return { data, revision, exportedRevision, noticeSeen, error: '' }
   } catch {
     return {
       data,
+      revision,
+      exportedRevision,
+      noticeSeen,
       error: '本地数据无法读取，请重试或从备份恢复。',
     }
+  }
+}
+
+export async function saveSafetyPreference(key: 'noticeSeen' | 'exportedRevision', value: true | string) {
+  const database = await openDatabase()
+  try {
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = database.transaction('library', 'readwrite')
+      const store = transaction.objectStore('library')
+      let saved = true
+      if (key === 'exportedRevision') {
+        const request = store.get('revision')
+        request.onsuccess = () => {
+          saved = (request.result ?? '') === value
+          if (saved) store.put(value, key)
+        }
+      } else store.put(value, key)
+      transaction.oncomplete = () => resolve(saved)
+      transaction.onabort = () => reject(transaction.error)
+    })
+  } finally {
+    database.close()
   }
 }
 

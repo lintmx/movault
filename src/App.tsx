@@ -4,6 +4,7 @@ import {
   navigate,
   readLibrary,
   saveLibrary,
+  saveSafetyPreference,
   totals,
   formatDate,
   type Library,
@@ -18,15 +19,22 @@ import {
   StatusLegend,
   Statistics,
   Field,
+  Sheet,
 } from './ui'
 import { MovieDetail } from './MovieDetail'
 import { MovieForm, TicketForm } from './forms'
 import { DataManagement } from './DataManagement'
+import { DataSafety } from './DataSafety'
 import './styles.css'
 
 function App() {
   const [library, setLibrary] = useState<Library | null>(null)
   const [error, setError] = useState('')
+  const [revision, setRevision] = useState('')
+  const [exportedRevision, setExportedRevision] = useState<string | null>(null)
+  const [safetyOpen, setSafetyOpen] = useState(false)
+  const [backupReminder, setBackupReminder] = useState(false)
+  const exporting = useRef(false)
   const saving = useRef(false)
   const [route, setRoute] = useState(() => window.location.pathname)
   const [toast, setToast] = useState('')
@@ -39,12 +47,38 @@ function App() {
       if (active) {
         setLibrary(result.data)
         setError(result.error)
+        setRevision(result.revision)
+        setExportedRevision(result.exportedRevision)
+        setSafetyOpen(!result.error && !result.noticeSeen)
+        setBackupReminder(!result.error && result.exportedRevision !== result.revision &&
+          !!(result.revision || result.data.movies.length || result.data.tickets.length))
       }
     })
     return () => {
       active = false
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    async function remind() {
+      if (document.visibilityState !== 'visible' || exporting.current || route === '/data') return
+      const result = await readLibrary()
+      if (!active || document.visibilityState !== 'visible' || exporting.current || result.error) return
+      setBackupReminder(result.exportedRevision !== result.revision &&
+        !!(result.revision || result.data.movies.length || result.data.tickets.length))
+    }
+    function restore(event: PageTransitionEvent) {
+      if (event.persisted) void remind()
+    }
+    document.addEventListener('visibilitychange', remind)
+    window.addEventListener('pageshow', restore)
+    return () => {
+      active = false
+      document.removeEventListener('visibilitychange', remind)
+      window.removeEventListener('pageshow', restore)
+    }
+  }, [route])
 
   useEffect(() => {
     function change() {
@@ -68,11 +102,13 @@ function App() {
     }
     saving.current = true
     try {
-      if (!await saveLibrary(next, error && replace ? undefined : library)) {
+      const nextRevision = await saveLibrary(next, error && replace ? undefined : library)
+      if (nextRevision === false) {
         setToast('未保存：本地数据已在其他页面更新，请刷新后重试。')
         return false
       }
       setLibrary(next)
+      setRevision(nextRevision)
       setError('')
       return true
     } catch {
@@ -96,9 +132,20 @@ function App() {
     (item) => item.id === ticketId && item.movieId === movieId,
   )
   const goHome = () => navigate('/')
+  const needsBackup = exportedRevision !== revision &&
+    !!(revision || library.movies.length || library.tickets.length)
   let page
   if (section === 'data') {
-    page = <DataManagement library={library} save={save} notify={setToast} />
+    page = <DataManagement library={library} save={save} notify={setToast}
+      needsBackup={needsBackup}
+      onShowSafety={() => setSafetyOpen(true)}
+      onExportingChange={(value) => { exporting.current = value }}
+      onExported={async () => {
+        const recorded = await saveSafetyPreference('exportedRevision', revision)
+        setExportedRevision(recorded ? revision : null)
+        if (recorded) setBackupReminder(false)
+        return recorded
+      }} />
   } else if (section === 'stats') {
     const selected = library.movies.some((item) => item.id === statisticsMovieId)
       ? statisticsMovieId : 'all'
@@ -240,6 +287,26 @@ function App() {
         </div>
       )}
       {page}
+      {safetyOpen && (
+        <DataSafety notify={setToast} onClose={() => {
+          setSafetyOpen(false)
+          void saveSafetyPreference('noticeSeen', true).catch(() => {
+            setToast('无法记录提示状态，下次进入时会再次显示。')
+          })
+        }} />
+      )}
+      {backupReminder && !safetyOpen && (
+        <Sheet title="有未导出的数据" description="本地数据有更新，尚未导出对应备份。请将最新备份保存到本机文件夹，以便浏览器数据丢失时恢复。"
+          onClose={() => setBackupReminder(false)}>
+          <div className="sheet-footer">
+            <button className="button secondary" onClick={() => setBackupReminder(false)}>稍后提醒</button>
+            <button className="button primary" onClick={() => {
+              setBackupReminder(false)
+              navigate('/data')
+            }}>去导出备份</button>
+          </div>
+        </Sheet>
+      )}
       {toast && (
         <div className="toast" role="status">
           <span>{toast}</span>

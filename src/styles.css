@@ -1430,6 +1430,29 @@ legend {
   color: var(--ui-muted);
   font-size: 12px;
 }
+.data-section > .backup-pending {
+  color: var(--amber-11);
+}
+.backup-download {
+  margin-left: 12px;
+}
+.safety-content {
+  padding: 0 16px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.safety-content section + section {
+  margin-top: 16px;
+}
+.safety-content h3 {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.safety-content p {
+  color: var(--ui-muted);
+  margin-top: 6px;
+}
 .file-picker {
   width: 100%;
   display: flex;
