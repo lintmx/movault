@@ -253,6 +253,8 @@
   "ocr.scan": "拍照识别",
   "ocr.choosePhoto": "从相册选择",
   "ocr.preparing": "正在准备识别资源…",
+  "ocr.loadingProgress": "正在下载识别资源… {{value1}}%",
+  "ocr.retryResources": "重试加载识别资源",
   "ocr.offlineReady": "可离线识别",
   "ocr.offlinePending": "离线识别资源尚未就绪",
   "ocr.stop": "停止识别",

@@ -139,7 +139,9 @@ export function OcrScanner({ number, pin, onNumber, onPin, onReady, resetToken, 
   const [message, setMessage] = useState('')
   const [issues, setIssues] = useState(['', ''])
   const [offline, setOffline] = useState(false)
-  const [preparing, setPreparing] = useState(true)
+  const [progress, setProgress] = useState<number | null>(0)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const preparing = progress !== null
   const [zoom, setZoom] = useState<number | null>(null)
   const camera = useRef<HTMLInputElement>(null), album = useRef<HTMLInputElement>(null)
   const source = useRef<ImageBitmap | null>(null)
@@ -154,12 +156,14 @@ export function OcrScanner({ number, pin, onNumber, onPin, onReady, resetToken, 
   }
 
   useEffect(() => {
-    const engine = createOcrClient(setOffline)
-    client.current = engine
     let active = true
-    void engine.initialize().catch(() => {
-      if (active && !source.current) setMessage('ocr.resourcesPending')
-    }).finally(() => { if (active) setPreparing(false) })
+    const engine = createOcrClient(setOffline, (percent) => {
+      if (active) { setProgress(percent); if (percent !== null) setLoadFailed(false) }
+    })
+    client.current = engine
+    void engine.initialize().catch((error: Error) => {
+      if (active && error.name !== 'AbortError') { setLoadFailed(true); if (!source.current) setMessage('ocr.resourcesPending') }
+    })
     function dispose() { active = false; sequence.current++; engine.dispose(); clearImages() }
     return dispose
   }, [])
@@ -207,8 +211,12 @@ export function OcrScanner({ number, pin, onNumber, onPin, onReady, resetToken, 
           setCorners(detected); setDirect(false)
           await processRegions(detected, false, task)
         } else { setDirect(false); setStage('adjusting'); setMessage('ocr.checkCorners') }
-      } catch {
-        if (task === sequence.current) { setDirect(true); setStage('adjusting'); setMessage('ocr.locationFailed') }
+      } catch (error) {
+        if (task === sequence.current) {
+          setDirect(true); setStage('adjusting')
+          const failed = (error as Error).message === 'ocr.resourcesFailed'
+          setLoadFailed(failed); setMessage(failed ? 'ocr.resourcesFailed' : 'ocr.locationFailed')
+        }
       } finally { preview.width = 0; preview.height = 0 }
     } catch (error) {
       if (task === sequence.current) { setStage('idle'); setMessage((error as Error).message) }
@@ -273,9 +281,18 @@ export function OcrScanner({ number, pin, onNumber, onPin, onReady, resetToken, 
   }
 
   function cancel() {
-    sequence.current++; client.current?.cancel(); setPreparing(false)
+    sequence.current++; client.current?.cancel()
     setStage(crops.length === 2 ? 'reviewing' : photo ? 'adjusting' : 'idle')
     setMessage('ocr.stopped')
+  }
+
+  async function retryResources() {
+    setMessage('')
+    const task = sequence.current
+    try { await client.current!.initialize() }
+    catch {
+      if (task === sequence.current) { setLoadFailed(true); setMessage('ocr.resourcesFailed') }
+    }
   }
 
   function editNumber(index: number, value: string) {
@@ -296,7 +313,8 @@ export function OcrScanner({ number, pin, onNumber, onPin, onReady, resetToken, 
     </div>
     <input ref={camera} hidden type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={pick} />
     <input ref={album} hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} />
-    <p className="hint" role="status">{preparing ? t('ocr.preparing') : offline ? t('ocr.offlineReady') : t('ocr.offlinePending')}</p>
+    <p className="hint" role="status">{preparing ? progress === 100 ? t('ocr.preparing') : t('ocr.loadingProgress', { value1: progress }) : offline ? t('ocr.offlineReady') : t('ocr.offlinePending')}</p>
+    {loadFailed && !preparing && !busy && <button type="button" className="text-button primary-text" onClick={() => void retryResources()}>{t('ocr.retryResources')}</button>}
     {message && <p className="notice" role="status">{translateMessage(message)}</p>}
     {(busy || preparing) && <button type="button" className="text-button" onClick={cancel}>{t('ocr.stop')}</button>}
     {stage === 'idle' && <p className="hint">{t('ocr.photoHelp')}</p>}

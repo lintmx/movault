@@ -253,6 +253,8 @@
   "ocr.scan": "Scan ticket",
   "ocr.choosePhoto": "Choose photo",
   "ocr.preparing": "Preparing recognition resources…",
+  "ocr.loadingProgress": "Downloading recognition resources… {{value1}}%",
+  "ocr.retryResources": "Retry loading recognition resources",
   "ocr.offlineReady": "Offline recognition ready",
   "ocr.offlinePending": "Offline recognition resources are not ready",
   "ocr.stop": "Stop recognition",

@@ -59,7 +59,7 @@ self.addEventListener('fetch', event => {
     if (version) {
       event.respondWith((async () => {
         try {
-          const cached = await (await caches.open('movault-ocr-' + version)).match(event.request)
+          const cached = event.request.cache === 'reload' ? undefined : await caches.match(event.request)
           if (cached) return cached
         } catch {}
         return fetch(event.request)

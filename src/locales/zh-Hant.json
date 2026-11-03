@@ -253,6 +253,8 @@
   "ocr.scan": "拍照辨識",
   "ocr.choosePhoto": "從相簿選擇",
   "ocr.preparing": "正在準備辨識資源…",
+  "ocr.loadingProgress": "正在下載辨識資源… {{value1}}%",
+  "ocr.retryResources": "重試載入辨識資源",
   "ocr.offlineReady": "可離線辨識",
   "ocr.offlinePending": "離線辨識資源尚未就緒",
   "ocr.stop": "停止辨識",

@@ -253,6 +253,8 @@
   "ocr.scan": "写真で読み取る",
   "ocr.choosePhoto": "写真を選択",
   "ocr.preparing": "認識データを準備中…",
+  "ocr.loadingProgress": "認識データをダウンロード中… {{value1}}%",
+  "ocr.retryResources": "認識データの読み込みを再試行",
   "ocr.offlineReady": "オフライン認識可能",
   "ocr.offlinePending": "オフライン認識の準備が未完了",
   "ocr.stop": "認識を停止",

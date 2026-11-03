@@ -2,19 +2,19 @@
 let vision
 let recognizer
 
-async function initialize() {
-  importScripts('./opencv.js', './tesseract.min.js')
+async function initialize({ scripts, workerPath, langPath }) {
+  importScripts(...scripts)
   await new Promise((resolve, reject) => cv.then((module) => { vision = module; resolve() }, reject))
-  recognizer = await Tesseract.createWorker('eng', 1, {
-    workerPath: new URL('./worker.min.js', self.location.href).href,
-    corePath: new URL('./', self.location.href).href,
-    langPath: new URL('./', self.location.href).href.replace(/\/$/, ''),
+  let fail
+  const failed = new Promise((_, reject) => { fail = reject })
+  recognizer = await Promise.race([Tesseract.createWorker('eng', 1, {
+    workerPath, langPath,
     cacheMethod: 'none',
     gzip: false,
     workerBlobURL: false,
     logger: () => {},
-    errorHandler: () => {},
-  })
+    errorHandler: (error) => fail(new Error(String(error))),
+  }), failed])
   await recognizer.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789' })
   return true
 }
@@ -65,6 +65,7 @@ function detect(pixels) {
   const contours = new c.MatVector(), hierarchy = new c.Mat()
   try {
     c.cvtColor(src, gray, c.COLOR_RGBA2GRAY)
+    c.normalize(gray, gray, 0, 255, c.NORM_MINMAX)
     c.GaussianBlur(gray, gray, new c.Size(5, 5), 0)
     const candidates = []
     for (const edges of [false, true]) {
@@ -105,11 +106,15 @@ function detect(pixels) {
     try {
       c.warpPerspective(gray, card, transform, new c.Size(480, 300))
       const stripeScore = (top, bottom) => {
-        let count = 0
-        for (let y = top; y < bottom; y++) for (let x = 25; x < 365; x++) {
-          if ((card.ucharAt(y, x) < 100) !== (card.ucharAt(y, x + 1) < 100)) count++
+        let best = 0
+        for (const threshold of [50, 75, 100, 125, 150, 175]) {
+          let count = 0
+          for (let y = top; y < bottom; y++) for (let x = 25; x < 365; x++) {
+            if ((card.ucharAt(y, x) < threshold) !== (card.ucharAt(y, x + 1) < threshold)) count++
+          }
+          best = Math.max(best, count)
         }
-        return count
+        return best
       }
       const lower = stripeScore(204, 238), upper = stripeScore(62, 96)
       if (Math.max(lower, upper) < 300 || Math.max(lower, upper) < Math.min(lower, upper) * 1.4) return null
@@ -130,16 +135,30 @@ function warp({ pixels, points, width, height }) {
   } finally { src.delete(); dst.delete(); input.delete(); output.delete(); transform.delete() }
 }
 
-function prepare({ pixels, adaptive }) {
+function prepare({ pixels, blockSize, green = false }) {
   const c = vision
+  const histogram = new Uint32Array(256)
   for (let i = 0; i < pixels.data.length; i += 4) {
-    const gray = Math.max(pixels.data[i], pixels.data[i + 1])
+    const gray = green ? pixels.data[i + 1] : Math.max(pixels.data[i], pixels.data[i + 1])
     pixels.data[i] = gray; pixels.data[i + 1] = gray; pixels.data[i + 2] = gray
+    histogram[gray]++
+  }
+  if (!blockSize) {
+    let count = 0, low = 0, high = 255
+    for (let i = 0; i < 256; i++) {
+      count += histogram[i]
+      if (count < pixels.width * pixels.height * .02) low = i
+      if (count < pixels.width * pixels.height * .90) high = i
+    }
+    if (high > low) for (let i = 0; i < pixels.data.length; i += 4) {
+      const value = (pixels.data[i] - low) * 255 / (high - low)
+      pixels.data[i] = value; pixels.data[i + 1] = value; pixels.data[i + 2] = value
+    }
   }
   const src = c.matFromImageData(pixels), gray = new c.Mat()
   try {
     c.cvtColor(src, gray, c.COLOR_RGBA2GRAY)
-    if (adaptive) c.adaptiveThreshold(gray, gray, 255, c.ADAPTIVE_THRESH_GAUSSIAN_C, c.THRESH_BINARY, 31, 10)
+    if (blockSize) c.adaptiveThreshold(gray, gray, 255, c.ADAPTIVE_THRESH_GAUSSIAN_C, c.THRESH_BINARY, blockSize, 10)
     c.cvtColor(gray, src, c.COLOR_GRAY2RGBA)
     return { data: new Uint8ClampedArray(src.data), width: src.cols, height: src.rows }
   } finally { src.delete(); gray.delete() }
@@ -148,7 +167,7 @@ function prepare({ pixels, adaptive }) {
 self.onmessage = async ({ data: { id, action, payload } }) => {
   try {
     let result
-    if (action === 'init') result = await initialize()
+    if (action === 'init') result = await initialize(payload)
     else if (action === 'detect') result = detect(payload)
     else if (action === 'warp') result = warp(payload)
     else if (action === 'prepare') result = prepare(payload)
