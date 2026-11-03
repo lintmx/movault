@@ -1,3 +1,5 @@
+import { type Message } from './i18n'
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import {
   ChevronDown,
@@ -43,8 +45,9 @@ export function MovieDetail({
   movie: Movie
   tickets: Ticket[]
   onChange: (ticket: Ticket) => Promise<boolean>
-  notify: (message: string) => void
+  notify: (message: Message) => void
 }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<Status | 'all'>('all')
   const [type, setType] = useState<TicketType | 'all'>('all')
@@ -63,7 +66,7 @@ export function MovieDetail({
   return (
     <>
       <Header
-        title="前售券管理"
+        title={t('tickets.manage')}
         back={() => navigate('/')}
         action={<DataButton onClick={() => navigate('/data')} />}
       />
@@ -73,7 +76,7 @@ export function MovieDetail({
           <Poster movie={movie} />
           <button
             className="icon-button"
-            aria-label="编辑电影信息"
+            aria-label={t('movies.editInfo')}
             onClick={() => navigate(`/movies/${movie.id}/edit`)}
           >
             <Pencil />
@@ -81,17 +84,13 @@ export function MovieDetail({
         </section>
         <section className="detail-summary">
           <div className="detail-counts">
-            <strong className="available-text">
-              剩余 {counts.available} 次
-            </strong>
-            <span className="pending-text">待确认 {counts.pending} 次</span>
-            <span>已使用 {counts.used} 次</span>
+            <strong className="available-text">{t('tickets.remaining', { count: counts.available })}</strong>
+            <span className="pending-text">{t('tickets.pendingCount', { count: counts.pending })}</span>
+            <span>{t('tickets.usedCount', { count: counts.used })}</span>
             <button
               className="text-button primary-text"
               onClick={() => setSheet('stats')}
-            >
-              统计详情
-              <ChevronDown size={16} />
+            >{t('stats.details')}<ChevronDown size={16} />
             </button>
           </div>
           <Progress tickets={tickets} />
@@ -102,15 +101,15 @@ export function MovieDetail({
             <input
               type="search"
               inputMode="numeric"
-              aria-label="按購入番号搜索"
-              placeholder="按購入番号搜索…"
+              aria-label={t('tickets.search')}
+              placeholder={t('tickets.searchPlaceholder')}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
             {query && (
               <button
                 className="icon-button"
-                aria-label="清除搜索"
+                aria-label={t('common.clearSearch')}
                 onClick={() => setQuery('')}
               >
                 <X size={16} />
@@ -118,7 +117,7 @@ export function MovieDetail({
             )}
           </div>
           <div className="filter-row">
-            <div className="filter-tabs" aria-label="前售券状态">
+            <div className="filter-tabs" aria-label={t('tickets.status')}>
               {(['all', ...statuses] as const).map((item) => (
                 <button
                   key={item}
@@ -126,7 +125,7 @@ export function MovieDetail({
                   className={status === item ? 'selected' : ''}
                   onClick={() => setStatus(item)}
                 >
-                  {item === 'all' ? '全部' : statusLabels[item]}{' '}
+                  {item === 'all' ? t('common.all') : t(statusLabels[item])}{' '}
                   <span>
                     (
                     {item === 'all'
@@ -140,7 +139,7 @@ export function MovieDetail({
             </div>
             <button
               className={`icon-button type-filter ${type !== 'all' ? 'primary-text' : ''}`}
-              aria-label={`筛选券种类型：${type === 'all' ? '全部类型' : typeLabels[type]}`}
+              aria-label={t('tickets.filterType', { value1: type === 'all' ? t('tickets.allTypes') : t(typeLabels[type]) })}
               onClick={() => setSheet('filter')}
             >
               <SlidersHorizontal size={18} />
@@ -151,12 +150,12 @@ export function MovieDetail({
               className="text-button active-filter"
               onClick={() => setType('all')}
             >
-              {typeLabels[type]}
+              {t(typeLabels[type])}
               <X size={14} />
             </button>
           )}
         </section>
-        <section aria-label="前售券列表" className="ticket-list">
+        <section aria-label={t('tickets.list')} className="ticket-list">
           {visible.map((ticket) => (
             <article
               className={`ticket-row ${ticket.counts.used === totals([ticket]).total ? 'consumed' : ''}`}
@@ -167,39 +166,35 @@ export function MovieDetail({
                   <Badge
                     status={ticket.type === 'digital' ? 'digital' : undefined}
                   >
-                    {typeLabels[ticket.type]}
+                    {t(typeLabels[ticket.type])}
                   </Badge>
                   {ticket.type === 'physical' ? (
                     <Badge
                       status={statuses.find((state) => ticket.counts[state])}
                     >
                       {
-                        statusLabels[
+                        t(statusLabels[
                           statuses.find((state) => ticket.counts[state])!
-                        ]
+                        ])
                       }
                     </Badge>
                   ) : (
-                    <span className="muted">
-                      共 {totals([ticket]).total} 次
-                    </span>
+                    <span className="muted">{t('tickets.totalCount', { count: totals([ticket]).total })}</span>
                   )}
                 </div>
                 <div className="ticket-actions">
                   <button
                     className="text-button"
                     onClick={() => setSheet(ticket)}
-                  >
-                    更改状态
-                  </button>
+                  >{t('tickets.changeStatus')}</button>
                   <CopyButton
-                    text={`購入番号：${ticket.number}\n暗証番号：${ticket.pin}`}
-                    label="复制全部"
+                    text={t('tickets.credentials', { value1: ticket.number, value2: ticket.pin })}
+                    label={t('tickets.copyAll')}
                     notify={notify}
                   />
                   <button
                     className="icon-button"
-                    aria-label={`编辑前售券 ${ticket.number}`}
+                    aria-label={t('tickets.editNumber', { value1: ticket.number })}
                     onClick={() =>
                       navigate(`/movies/${movie.id}/tickets/${ticket.id}`)
                     }
@@ -211,29 +206,27 @@ export function MovieDetail({
               {ticket.type === 'digital' && (
                 <div className="ticket-statuses">
                   {statuses.map((state) => (
-                    <Badge key={state} status={state}>
-                      {statusLabels[state]} {ticket.counts[state]} 次
-                    </Badge>
+                    <Badge key={state} status={state}>{t('tickets.statusCount', { value1: t(statusLabels[state]), count: ticket.counts[state] })}</Badge>
                   ))}
                 </div>
               )}
               <div className="credentials">
                 <div>
-                  <span>購入番号</span>
+                  <span>{t('tickets.number')}</span>
                   <strong>{formatNumber(ticket.number)}</strong>
                   <CopyButton
                     text={ticket.number}
-                    label="复制購入番号"
+                    label={t('tickets.copyNumber')}
                     compact
                     notify={notify}
                   />
                 </div>
                 <div>
-                  <span>暗証番号</span>
+                  <span>{t('tickets.pin')}</span>
                   <strong>{ticket.pin}</strong>
                   <CopyButton
                     text={ticket.pin}
-                    label="复制暗証番号"
+                    label={t('tickets.copyPin')}
                     compact
                     notify={notify}
                   />
@@ -244,7 +237,7 @@ export function MovieDetail({
           ))}
           {!visible.length && (
             <EmptyState
-              title={tickets.length ? '没有符合条件的前售券' : '暂无前售券'}
+              title={tickets.length ? t('tickets.noMatches') : t('tickets.empty')}
               action={
                 tickets.length ? (
                   <button
@@ -254,15 +247,13 @@ export function MovieDetail({
                       setStatus('all')
                       setType('all')
                     }}
-                  >
-                    清除筛选
-                  </button>
+                  >{t('tickets.clearFilters')}</button>
                 ) : undefined
               }
             >
               {tickets.length
                 ? undefined
-                : '添加購入番号与暗証番号，开始管理兑换。'}
+                : t('tickets.getStarted')}
             </EmptyState>
           )}
         </section>
@@ -272,12 +263,10 @@ export function MovieDetail({
           className="button primary full-width"
           onClick={() => navigate(`/movies/${movie.id}/add`)}
         >
-          <Plus size={20} />
-          添加前售券
-        </button>
+          <Plus size={20} />{t('tickets.add')}</button>
       </div>
       {sheet === 'filter' && (
-        <Sheet title="前售券类型" onClose={() => setSheet(null)}>
+        <Sheet title={t('tickets.type')} onClose={() => setSheet(null)}>
           <div className="sheet-body option-list">
             {(['all', 'physical', 'digital'] as const).map((item) => (
               <label className="radio-option" key={item}>
@@ -290,7 +279,7 @@ export function MovieDetail({
                     setSheet(null)
                   }}
                 />
-                {item === 'all' ? '全部类型' : typeLabels[item]}
+                {item === 'all' ? t('tickets.allTypes') : t(typeLabels[item])}
               </label>
             ))}
           </div>
@@ -298,7 +287,7 @@ export function MovieDetail({
       )}
       {sheet === 'stats' && (
         <Sheet
-          title="兑换统计详情"
+          title={t('stats.redemptionDetails')}
           description={movie.title}
           onClose={() => setSheet(null)}
         >
@@ -307,9 +296,7 @@ export function MovieDetail({
             <button
               className="button secondary full-width"
               onClick={() => setSheet(null)}
-            >
-              完成
-            </button>
+            >{t('common.done')}</button>
           </div>
         </Sheet>
       )}
@@ -320,7 +307,7 @@ export function MovieDetail({
           onSave={async (ticket) => {
             if (await onChange(ticket)) {
               setSheet(null)
-              notify('已更新使用状态')
+              notify('tickets.statusSaved')
             }
           }}
         />
@@ -338,6 +325,7 @@ function StatusSheet({
   onClose: () => void
   onSave: (ticket: Ticket) => Promise<void>
 }) {
+  const { t } = useTranslation()
   const [source, setSource] = useState<Status>(
     statuses.find((status) => ticket.counts[status] > 0)!,
   )
@@ -359,18 +347,18 @@ function StatusSheet({
   }
   return (
     <Sheet
-      title="修改使用状态"
-      description={`${typeLabels[ticket.type]}　購入番号 ${formatNumber(ticket.number)}`}
+      title={t('tickets.editStatus')}
+      description={t('tickets.statusDescription', { value1: t(typeLabels[ticket.type]), value2: formatNumber(ticket.number) })}
       onClose={onClose}
     >
       <div className="current-counts">
         {statuses.map((status) => (
           <Badge key={status} status={status}>
-            {statusLabels[status]}
+            {t(statusLabels[status])}
             {digital
-              ? ` ${ticket.counts[status]} 次`
+              ? t('tickets.countSuffix', { count: ticket.counts[status] })
               : ticket.counts[status]
-                ? '（当前）'
+                ? t('tickets.current')
                 : ''}
           </Badge>
         ))}
@@ -378,7 +366,7 @@ function StatusSheet({
       <div className="sheet-body status-form">
         {digital && (
           <fieldset>
-            <legend>从当前状态转出</legend>
+            <legend>{t('tickets.sourceStatus')}</legend>
             <div className="three-options">
               {statuses.map((status) => (
                 <label
@@ -397,15 +385,15 @@ function StatusSheet({
                         setTarget(statuses.find((item) => item !== status)!)
                     }}
                   />
-                  {statusLabels[status]}
-                  <span>({ticket.counts[status]} 次)</span>
+                  {t(statusLabels[status])}
+                  <span>{t('tickets.countParentheses', { count: ticket.counts[status] })}</span>
                 </label>
               ))}
             </div>
           </fieldset>
         )}
         <fieldset>
-          <legend>{digital ? '改为目标状态' : '选择使用状态'}</legend>
+          <legend>{digital ? t('tickets.targetStatus') : t('tickets.selectStatus')}</legend>
           <div className="three-options">
             {statuses.map((status) => (
               <label
@@ -419,7 +407,7 @@ function StatusSheet({
                   checked={target === status}
                   onChange={() => setTarget(status)}
                 />
-                {statusLabels[status]}
+                {t(statusLabels[status])}
               </label>
             ))}
           </div>
@@ -427,13 +415,13 @@ function StatusSheet({
         {digital && (
           <div className="quantity-row">
             <div>
-              <label htmlFor="status-quantity">变更次数</label>
-              <p className="hint">最多 {ticket.counts[source]} 次</p>
+              <label htmlFor="status-quantity">{t('tickets.changeQuantity')}</label>
+              <p className="hint">{t('tickets.maximum', { count: ticket.counts[source] })}</p>
             </div>
             <div className="stepper">
               <button
                 className="icon-button"
-                aria-label="减少次数"
+                aria-label={t('tickets.decrease')}
                 disabled={amount <= 1}
                 onClick={() => setAmount(amount - 1)}
               >
@@ -442,7 +430,7 @@ function StatusSheet({
               <output id="status-quantity">{amount}</output>
               <button
                 className="icon-button"
-                aria-label="增加次数"
+                aria-label={t('tickets.increase')}
                 disabled={amount >= ticket.counts[source]}
                 onClick={() => setAmount(amount + 1)}
               >
@@ -451,23 +439,19 @@ function StatusSheet({
             </div>
           </div>
         )}
-        <Field id="status-note" label="备注（选填）">
+        <Field id="status-note" label={t('tickets.optionalNote')}>
           <input
             id="status-note"
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder="例如：已提交影院在线选座"
+            placeholder={t('tickets.statusNotePlaceholder')}
             maxLength={200}
           />
         </Field>
       </div>
       <div className="sheet-footer">
-        <button className="button secondary" onClick={onClose}>
-          取消
-        </button>
-        <button className="button primary" onClick={submit}>
-          保存状态
-        </button>
+        <button className="button secondary" onClick={onClose}>{t('common.cancel')}</button>
+        <button className="button primary" onClick={submit}>{t('tickets.saveStatus')}</button>
       </div>
     </Sheet>
   )

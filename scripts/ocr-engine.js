@@ -129,6 +129,6 @@ self.onmessage = async ({ data: { id, action, payload } }) => {
     } else throw new Error('Unknown action')
     self.postMessage({ id, result }, result?.data ? [result.data.buffer] : [])
   } catch {
-    self.postMessage({ id, error: '识别处理失败，请重试或对照图片填写。' })
+    self.postMessage({ id, error: 'ocr.processingFailed' })
   }
 }

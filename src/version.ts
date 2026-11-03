@@ -9,12 +9,12 @@ async function readVersion() {
     cache: 'no-store',
     signal: AbortSignal.timeout(10000),
   })
-  if (!response.ok) throw new Error('版本检查失败')
+  if (!response.ok) throw new Error('updates.versionFailed')
   const version = await response.json() as AppVersion
   if (!version || typeof version.id !== 'string' || !version.id ||
     typeof version.label !== 'string' || !version.label ||
     typeof version.commit !== 'string' || typeof version.builtAt !== 'string' ||
-    !Number.isFinite(Date.parse(version.builtAt))) throw new Error('版本信息无效')
+    !Number.isFinite(Date.parse(version.builtAt))) throw new Error('updates.invalidVersion')
   return version
 }
 
@@ -65,7 +65,7 @@ export function useAppVersion() {
 export async function applyUpdate(signal: AbortSignal) {
   const latest = await readVersion()
   signal.throwIfAborted()
-  if (latest.id === currentVersion.id) throw new Error('当前已是最新版本，请重新检查更新。')
+  if (latest.id === currentVersion.id) throw new Error('updates.alreadyLatest')
   if (!('serviceWorker' in navigator)) {
     window.location.reload()
     return
@@ -73,7 +73,7 @@ export async function applyUpdate(signal: AbortSignal) {
   let timer = 0
   let channel: MessageChannel | undefined
   const deadline = new Promise<never>((_, reject) => {
-    timer = window.setTimeout(() => reject(new Error('更新超时，请检查网络后重试。')), 60000)
+    timer = window.setTimeout(() => reject(new Error('updates.timeout')), 60000)
   })
   try {
     const registration = await Promise.race([
@@ -86,14 +86,14 @@ export async function applyUpdate(signal: AbortSignal) {
     }
     signal.throwIfAborted()
     const worker = registration.waiting ?? registration.active
-    if (!worker) throw new Error('新版本资源准备失败，请检查网络后重试。')
+    if (!worker) throw new Error('updates.resourcesFailed')
     channel = new MessageChannel()
-    const reply = new Promise<{ error: string }>(resolve => {
+    const reply = new Promise<{ error: string; errorKey?: string }>(resolve => {
       channel!.port1.onmessage = event => resolve(event.data)
     })
     worker.postMessage({ type: 'activate-update', buildId: latest.id }, [channel.port2])
     const result = await Promise.race([reply, deadline])
-    if (result.error) throw new Error(result.error)
+    if (result.error) throw new Error(result.errorKey ?? result.error)
     while (navigator.serviceWorker.controller !== worker || worker.state !== 'activated') {
       signal.throwIfAborted()
       await Promise.race([new Promise(resolve => window.setTimeout(resolve, 100)), deadline])

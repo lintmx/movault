@@ -1,3 +1,5 @@
+import { type Message, translateMessage, yen } from './i18n'
+import { useTranslation } from 'react-i18next'
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   Check,
@@ -16,7 +18,6 @@ import {
   totals,
   timestamp,
   typeLabels,
-  yen,
   type Library,
   type Movie,
   type Ticket,
@@ -28,7 +29,7 @@ import { OcrScanner } from './OcrScanner'
 type FormProps = {
   library: Library
   save: (library: Library) => Promise<boolean>
-  notify: (message: string) => void
+  notify: (message: Message) => void
 }
 
 export function MovieForm({
@@ -37,11 +38,12 @@ export function MovieForm({
   save,
   notify,
 }: FormProps & { movie?: Movie }) {
+  const { t } = useTranslation()
   const [title, setTitle] = useState(movie?.title ?? '')
   const [date, setDate] = useState(movie?.releaseDate ?? '')
   const [price, setPrice] = useState(String(movie?.price ?? 1500))
   const [poster, setPoster] = useState(movie?.poster ?? '')
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [errors, setErrors] = useState<Record<string, Message>>({})
   const [deleting, setDeleting] = useState(false)
   const upload = useRef<HTMLInputElement>(null)
   const back = () => navigate(movie ? `/movies/${movie.id}` : '/')
@@ -50,12 +52,12 @@ export function MovieForm({
   ).length
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const nextErrors: Record<string, string> = {}
-    if (!title.trim()) nextErrors.title = '请输入电影名称'
+    const nextErrors: Record<string, Message> = {}
+    if (!title.trim()) nextErrors.title = 'movies.titleRequired'
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date))
-      nextErrors.date = '请选择上映日期'
+      nextErrors.date = 'movies.dateRequired'
     if (!price || !Number.isFinite(Number(price)) || Number(price) < 0)
-      nextErrors.price = '请输入有效的日元价格'
+      nextErrors.price = 'tickets.invalidPrice'
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
     const now = timestamp()
@@ -78,7 +80,7 @@ export function MovieForm({
           : [...library.movies, nextMovie],
       })
     ) {
-      notify('电影已保存')
+      notify('movies.saved')
       navigate(`/movies/${nextMovie.id}`)
     }
   }
@@ -95,7 +97,7 @@ export function MovieForm({
   }
   return (
     <>
-      <Header title={movie ? '编辑电影' : '新建电影'} back={back} />
+      <Header title={movie ? t('movies.edit') : t('movies.add')} back={back} />
       <main className="page form-page">
         <form
           id="movie-form"
@@ -105,8 +107,8 @@ export function MovieForm({
         >
           <section className="poster-editor">
             <div className="field-label">
-              <span>电影海报</span>
-              <span>选填</span>
+              <span>{t('movies.poster')}</span>
+              <span>{t('common.optional')}</span>
             </div>
             <div className="poster-upload-row">
               <Poster
@@ -117,12 +119,8 @@ export function MovieForm({
                 }}
               />
               <div>
-                <h2>上传电影海报</h2>
-                <p className="hint">
-                  支持 JPG、PNG、WebP
-                  <br />
-                  建议使用 2:3 竖版图片
-                </p>
+                <h2>{t('movies.uploadPoster')}</h2>
+                <p className="hint">{t('movies.posterFormats')}<br />{t('movies.posterRatio')}</p>
                 <div className="poster-actions">
                   <button
                     className="button secondary"
@@ -130,13 +128,13 @@ export function MovieForm({
                     onClick={() => upload.current?.click()}
                   >
                     <ImagePlus size={16} />
-                    {poster ? '更换海报' : '选择图片'}
+                    {poster ? t('movies.changePoster') : t('movies.chooseImage')}
                   </button>
                   {poster && (
                     <button
                       className="icon-button"
                       type="button"
-                      aria-label="移除海报"
+                      aria-label={t('movies.removePoster')}
                       onClick={() => setPoster('')}
                     >
                       <Trash2 size={18} />
@@ -155,15 +153,15 @@ export function MovieForm({
           </section>
           <Field
             id="movie-title"
-            label="电影名称 *"
-            hint="支持日文原名或译名"
+            label={t('movies.titleLabel')}
+            hint={t('movies.titleHint')}
             error={errors.title}
           >
             <input
               id="movie-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="输入电影名称"
+              placeholder={t('movies.titlePlaceholder')}
               maxLength={160}
               required
               aria-invalid={!!errors.title}
@@ -172,8 +170,8 @@ export function MovieForm({
           </Field>
           <Field
             id="movie-date"
-            label="上映日期 *"
-            hint="日本院线上映日"
+            label={t('movies.dateLabel')}
+            hint={t('movies.dateHint')}
             error={errors.date}
           >
             <input
@@ -188,8 +186,8 @@ export function MovieForm({
           </Field>
           <Field
             id="movie-price"
-            label="默认单次价格 *"
-            hint="日元"
+            label={t('movies.priceLabel')}
+            hint={t('common.yen')}
             error={errors.price}
           >
             <div className="money-input">
@@ -209,7 +207,7 @@ export function MovieForm({
                 }
               />
             </div>
-            <p className="hint">录入前售券时自动带入，可单独修改。</p>
+            <p className="hint">{t('movies.priceHint')}</p>
           </Field>
           {movie && (
             <button
@@ -217,34 +215,26 @@ export function MovieForm({
               type="button"
               onClick={() => setDeleting(true)}
             >
-              <Trash2 size={18} />
-              删除电影
-            </button>
+              <Trash2 size={18} />{t('movies.delete')}</button>
           )}
         </form>
       </main>
       <div className="bottom-bar">
-        <button className="button secondary" onClick={back}>
-          取消
-        </button>
+        <button className="button secondary" onClick={back}>{t('common.cancel')}</button>
         <button form="movie-form" className="button primary grow" type="submit">
-          <Check size={18} />
-          保存电影
-        </button>
+          <Check size={18} />{t('movies.save')}</button>
       </div>
       {deleting && movie && (
         <Sheet
-          title="删除电影"
-          description={`将删除「${movie.title}」及其 ${count} 张前售券，此操作无法撤销。`}
+          title={t('movies.delete')}
+          description={t('movies.deleteConfirm', { value1: movie.title, count: count })}
           onClose={() => setDeleting(false)}
         >
           <div className="sheet-footer">
             <button
               className="button secondary"
               onClick={() => setDeleting(false)}
-            >
-              取消
-            </button>
+            >{t('common.cancel')}</button>
             <button
               className="button danger"
               onClick={async () => {
@@ -258,13 +248,11 @@ export function MovieForm({
                     ),
                   })
                 ) {
-                  notify('电影已删除')
+                  notify('movies.deleted')
                   navigate('/')
                 }
               }}
-            >
-              确认删除
-            </button>
+            >{t('common.confirmDelete')}</button>
           </div>
         </Sheet>
       )}
@@ -273,8 +261,8 @@ export function MovieForm({
 }
 
 function validateCode(value: string, code: string) {
-  if (!/^\d{10}$/.test(value)) return '購入番号应为 10 位数字'
-  if (!/^\d{4}$/.test(code)) return '暗証番号应为 4 位数字'
+  if (!/^\d{10}$/.test(value)) return 'tickets.numberInvalid'
+  if (!/^\d{4}$/.test(code)) return 'tickets.pinInvalid'
   return ''
 }
 
@@ -294,6 +282,7 @@ export function TicketForm({
   save,
   notify,
 }: FormProps & { movie: Movie; ticket?: Ticket }) {
+  const { t } = useTranslation()
   const [mode, setMode] = useState<'single' | 'batch' | 'photo'>('single')
   const [type, setType] = useState<TicketType>(ticket?.type ?? 'physical')
   const [number, setNumber] = useState(ticket?.number ?? '')
@@ -306,7 +295,7 @@ export function TicketForm({
   const [note, setNote] = useState(ticket?.note ?? '')
   const [showNote, setShowNote] = useState(!!ticket)
   const [deleting, setDeleting] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [errors, setErrors] = useState<Record<string, Message>>({})
   const [batch, setBatch] = useState('')
   const [rows, setRows] = useState<BatchRow[] | null>(null)
   const [ocrReady, setOcrReady] = useState(false)
@@ -331,8 +320,8 @@ export function TicketForm({
     const total = activeType === 'physical' ? 1 : Number(row.quantity || quantity)
     const amount = Number(row.price || price || movie.price * total)
     const error = row.parseError || validateCode(row.number, row.pin) ||
-      (!Number.isSafeInteger(total) || total < 1 ? '兑换总次数至少为 1 次' : '') ||
-      (!Number.isFinite(amount) || amount < 0 ? '请输入有效的日元价格' : '')
+      (!Number.isSafeInteger(total) || total < 1 ? 'tickets.quantityInvalid' : '') ||
+      (!Number.isFinite(amount) || amount < 0 ? 'tickets.invalidPrice' : '')
     const key = credentialKey(movie.id, row.number, row.pin)
     const duplicate = !error && (existing.has(key) || seen.has(key))
     if (!error) seen.add(key)
@@ -360,11 +349,11 @@ export function TicketForm({
         const code = values[1] ?? ''
         return {
           line: row.line, number: value, pin: code, quantity: '', price: '',
-          parseError: values.length !== 2 ? '每行应包含一组購入番号和暗証番号' : '',
+          parseError: values.length !== 2 ? 'tickets.batchFormat' : '',
         }
       })
     setRows(nextRows)
-    if (!nextRows.length) setErrors({ batch: '请先粘贴前售券号码' })
+    if (!nextRows.length) setErrors({ batch: 'tickets.batchRequired' })
     else setErrors({})
   }
   async function submit(event: FormEvent) {
@@ -375,25 +364,25 @@ export function TicketForm({
       return
     }
     const now = timestamp()
-    const nextErrors: Record<string, string> = {}
+    const nextErrors: Record<string, Message> = {}
     if (mode !== 'batch' && (!Number.isFinite(effectivePrice) || effectivePrice < 0))
-      nextErrors.price = '请输入有效的日元价格'
+      nextErrors.price = 'tickets.invalidPrice'
     if (
       mode !== 'batch' && activeType === 'digital' &&
       (!Number.isSafeInteger(Number(quantity)) || Number(quantity) < 1)
     )
-      nextErrors.quantity = '兑换总次数至少为 1 次'
+      nextErrors.quantity = 'tickets.quantityInvalid'
     const pending = ticket?.counts.pending ?? 0
     const used = ticket?.counts.used ?? 0
     if (ticket && total < pending + used)
-      nextErrors.quantity = `总次数不能少于待确认和已使用的 ${pending + used} 次，请先更改状态`
+      nextErrors.quantity = { key: 'tickets.quantityTooSmall', values: { count: pending + used } }
     if (mode !== 'batch') {
-      if (!/^\d{10}$/.test(number)) nextErrors.number = '購入番号应为 10 位数字'
-      if (!/^\d{4}$/.test(pin)) nextErrors.pin = '暗証番号应为 4 位数字'
+      if (!/^\d{10}$/.test(number)) nextErrors.number = 'tickets.numberInvalid'
+      if (!/^\d{4}$/.test(pin)) nextErrors.pin = 'tickets.pinInvalid'
       if (mode === 'photo' && !ocrReady)
-        nextErrors.photo = '请先完成识别并核对两个号码区域'
+        nextErrors.photo = 'ocr.reviewRequired'
     } else if (!validRows.length)
-      nextErrors.batch = '没有可以保存的有效记录，请修正下方错误'
+      nextErrors.batch = 'tickets.noValidRows'
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
     const values = mode === 'batch' ? validRows : [{ number, pin, total, amount: effectivePrice }]
@@ -428,7 +417,7 @@ export function TicketForm({
       setSubmitting(false)
     }
     if (!saved) return
-    notify(ticket ? '前售券已更新' : `已保存 ${added.length} 张前售券`)
+    notify(ticket ? 'tickets.savedChanges' : { key: 'tickets.saved', values: { count: added.length } })
     if ((mode === 'single' || mode === 'photo') && continuous) {
       setNumber('')
       setPin('')
@@ -454,8 +443,8 @@ export function TicketForm({
     <>
       <Field
         id="purchase-number"
-        label="購入番号 *"
-        hint={`${number.length} / 10 位`}
+        label={t('tickets.numberRequired')}
+        hint={t('tickets.numberProgress', { value1: number.length })}
         error={errors.number}
       >
         <input
@@ -474,8 +463,8 @@ export function TicketForm({
       </Field>
       <Field
         id="ticket-pin"
-        label="暗証番号 *"
-        hint={`${pin.length} / 4 位`}
+        label={t('tickets.pinRequired')}
+        hint={t('tickets.pinProgress', { value1: pin.length })}
         error={errors.pin}
       >
         <input
@@ -495,23 +484,21 @@ export function TicketForm({
   )
   return (
     <>
-      <Header title={ticket ? '编辑前售券' : '添加前售券'} back={back} />
+      <Header title={ticket ? t('tickets.edit') : t('tickets.add')} back={back} />
       <main className="page form-page ticket-form-page">
         <div className="target-movie">
           <Film size={16} />
-          <span>录入电影</span>
+          <span>{t('tickets.movie')}</span>
           <strong>{movie.title}</strong>
           {!ticket && (
             <button
               className="text-button primary-text"
               onClick={() => setSwitching(true)}
-            >
-              切换
-            </button>
+            >{t('common.switch')}</button>
           )}
         </div>
         {!ticket && (
-          <div className="segmented" aria-label="录入方式">
+          <div className="segmented" aria-label={t('tickets.entryMethod')}>
             {(['single', 'batch', 'photo'] as const).map((item, index) => (
               <button
                 key={item}
@@ -526,7 +513,7 @@ export function TicketForm({
                   if (item === 'photo') changeType('physical')
                 }}
               >
-                {['单张录入', '批量粘贴', '拍照识别'][index]}
+                {[t('tickets.single'), t('tickets.batch'), t('ocr.scan')][index]}
               </button>
             ))}
           </div>
@@ -539,7 +526,7 @@ export function TicketForm({
         >
           {mode !== 'photo' ? (
             <fieldset>
-              <legend>前售券类型</legend>
+              <legend>{t('tickets.type')}</legend>
               <div className="type-choices">
                 {(['physical', 'digital'] as const).map((item) => (
                   <label
@@ -553,46 +540,44 @@ export function TicketForm({
                       onChange={() => changeType(item)}
                     />
                     <div>
-                      <strong>{typeLabels[item]}</strong>
+                      <strong>{t(typeLabels[item])}</strong>
                       {type === item && <CircleCheck size={18} />}
                     </div>
                     <span>
                       {item === 'physical'
-                        ? '单次兑换，纸质或卡片'
-                        : '支持多次兑换，邮件或网页'}
+                        ? t('tickets.physicalHelp')
+                        : t('tickets.digitalHelp')}
                     </span>
                   </label>
                 ))}
               </div>
               {activeType === 'physical' && errors.quantity && (
                 <p className="field-error" role="alert">
-                  {errors.quantity}
+                  {translateMessage(errors.quantity)}
                 </p>
               )}
             </fieldset>
           ) : (
             <div className="notice">
               <Info size={16} />
-              <span>拍照识别仅适用于实体券，每张兑换 1 次。</span>
+              <span>{t('ocr.physicalOnly')}</span>
             </div>
           )}
           {mode === 'photo' && <OcrScanner
             number={number} pin={pin} onNumber={setNumber} onPin={setPin}
             onReady={setOcrReady} resetToken={scanReset} disabled={submitting} errors={errors}
           />}
-          {mode === 'photo' && errors.photo && <p className="field-error" role="alert">{errors.photo}</p>}
+          {mode === 'photo' && errors.photo && <p className="field-error" role="alert">{translateMessage(errors.photo)}</p>}
           {mode === 'single' ? credentials : null}
           {mode !== 'batch' && duplicate && (
-            <p className="notice pending-text" role="status">
-              此电影下已有相同的購入番号与暗証番号，请确认是否重复录入。
-            </p>
+            <p className="notice pending-text" role="status">{t('tickets.duplicateWarning')}</p>
           )}
           {mode === 'batch' && (
             <>
               <Field
                 id="batch-text"
-                label="原始文本"
-                hint="每行一张券"
+                label={t('tickets.batchText')}
+                hint={t('tickets.batchHint')}
                 error={errors.batch}
               >
                 <textarea
@@ -610,62 +595,56 @@ export function TicketForm({
                     errors.batch ? 'batch-text-error' : undefined
                   }
                 />
-                <p className="hint">
-                  購入番号和暗証番号之间用空格、逗号或 Tab 分隔。
-                </p>
+                <p className="hint">{t('tickets.batchSeparator')}</p>
               </Field>
               {rows && (
                 <section className="batch-preview">
                   <div className="field-label">
-                    <h2>核对凭证数据</h2>
+                    <h2>{t('tickets.batchReview')}</h2>
                     <button
                       type="button"
                       className="text-button primary-text"
                       onClick={parseBatch}
                     >
-                      <RefreshCw size={14} />
-                      重新解析
-                    </button>
+                      <RefreshCw size={14} />{t('tickets.reparse')}</button>
                   </div>
                   <div className="batch-summary">
-                    <Badge status="available">有效 {validRows.length} 条</Badge>
+                    <Badge status="available">{t('tickets.validRows', { count: validRows.length })}</Badge>
                     {rows.length > validRows.length && (
-                      <Badge status="pending">
-                        异常 {rows.length - validRows.length} 条
-                      </Badge>
+                      <Badge status="pending">{t('tickets.invalidRows', { count: rows.length - validRows.length })}</Badge>
                     )}
-                    {!!duplicateRows && <Badge status="pending">疑似重复 {duplicateRows} 条</Badge>}
+                    {!!duplicateRows && <Badge status="pending">{t('tickets.duplicateRows', { count: duplicateRows })}</Badge>}
                   </div>
                   {checkedRows.map((row) => (
                     <div
                       key={row.line}
                       className={`batch-row ${row.error ? 'invalid' : ''}`}
                     >
-                      <span className="hint">第 {row.line} 行</span>
+                      <span className="hint">{t('tickets.line', { value1: row.line })}</span>
                       <div className="batch-fields">
-                        <Field id={`batch-number-${row.line}`} label="購入番号">
+                        <Field id={`batch-number-${row.line}`} label={t('tickets.number')}>
                           <input id={`batch-number-${row.line}`} inputMode="numeric" maxLength={10}
                             value={row.number} onChange={(event) => updateRow(row.line, { number: event.target.value.replace(/\D/g, '') })} />
                         </Field>
-                        <Field id={`batch-pin-${row.line}`} label="暗証番号">
+                        <Field id={`batch-pin-${row.line}`} label={t('tickets.pin')}>
                           <input id={`batch-pin-${row.line}`} inputMode="numeric" maxLength={4}
                             value={row.pin} onChange={(event) => updateRow(row.line, { pin: event.target.value.replace(/\D/g, '') })} />
                         </Field>
                         {activeType === 'digital' && (
-                          <Field id={`batch-quantity-${row.line}`} label="兑换总次数">
+                          <Field id={`batch-quantity-${row.line}`} label={t('tickets.quantity')}>
                             <input id={`batch-quantity-${row.line}`} type="number" inputMode="numeric" min="1" step="1"
                               value={row.quantity || quantity} onChange={(event) => updateRow(row.line, { quantity: event.target.value })} />
                           </Field>
                         )}
-                        <Field id={`batch-price-${row.line}`} label="总价（日元）">
+                        <Field id={`batch-price-${row.line}`} label={t('tickets.totalPrice')}>
                           <input id={`batch-price-${row.line}`} type="number" inputMode="numeric" min="0" step="1"
                             value={row.price || price || (Number.isFinite(row.amount) ? String(row.amount) : '')}
                             onChange={(event) => updateRow(row.line, { price: event.target.value })} />
                         </Field>
                         {row.error && (
-                          <p className="field-error" role="alert">{row.error}</p>
+                          <p className="field-error" role="alert">{translateMessage(row.error)}</p>
                         )}
-                        {row.duplicate && <p className="pending-text">号码组合疑似重复，请核对</p>}
+                        {row.duplicate && <p className="pending-text">{t('tickets.duplicateRow')}</p>}
                       </div>
                       {!row.error && (
                         <CircleCheck size={18} className="available-text" />
@@ -679,8 +658,8 @@ export function TicketForm({
           {activeType === 'digital' && (
             <Field
               id="ticket-quantity"
-              label="兑换总次数"
-              hint="每张电子券"
+              label={t('tickets.quantity')}
+              hint={t('tickets.perDigitalTicket')}
               error={errors.quantity}
             >
               <input
@@ -699,10 +678,7 @@ export function TicketForm({
                 }
               />
               {ticket && (
-                <p className="hint">
-                  待确认 {ticket.counts.pending} 次，已使用 {ticket.counts.used} 次。
-                  调整总次数只增减未使用数量。
-                </p>
+                <p className="hint">{t('tickets.quantityHelp', { value1: ticket.counts.pending, value2: ticket.counts.used })}</p>
               )}
             </Field>
           )}
@@ -710,9 +686,9 @@ export function TicketForm({
             <Field
               id="ticket-price"
               label={
-                activeType === 'digital' ? '整张电子券总价' : '价格（日元）'
+                activeType === 'digital' ? t('tickets.digitalPrice') : t('tickets.price')
               }
-              hint={activeType === 'physical' ? '固定兑换 1 次' : '日元'}
+              hint={activeType === 'physical' ? t('tickets.singleRedemption') : t('common.yen')}
               error={errors.price}
             >
               <div className="money-input">
@@ -731,9 +707,7 @@ export function TicketForm({
                   }
                 />
               </div>
-              <p className="hint">
-                电影默认单次价格 {yen(movie.price)}，可直接修改。
-              </p>
+              <p className="hint">{t('tickets.defaultPrice', { value1: yen(movie.price) })}</p>
             </Field>
           )}
           {(mode === 'single' || mode === 'photo') && (
@@ -742,8 +716,8 @@ export function TicketForm({
                 <>
                   <label className="switch-row">
                     <div>
-                      <strong>连续录入</strong>
-                      <span>保存后清空号码，保留类型与共同设置</span>
+                      <strong>{t('tickets.continuous')}</strong>
+                      <span>{t('tickets.continuousHelp')}</span>
                     </div>
                     <input
                       className="switch-input"
@@ -760,18 +734,16 @@ export function TicketForm({
                     onClick={() => setShowNote(!showNote)}
                     aria-expanded={showNote}
                   >
-                    <Plus size={16} />
-                    添加备注（选填）
-                  </button>
+                    <Plus size={16} />{t('tickets.addNote')}</button>
                 </>
               )}
               {showNote && (
-                <Field id="ticket-note" label="备注">
+                <Field id="ticket-note" label={t('tickets.note')}>
                   <input
                     id="ticket-note"
                     value={note}
                     onChange={(event) => setNote(event.target.value)}
-                    placeholder="特典名称、购买批次等"
+                    placeholder={t('tickets.notePlaceholder')}
                     maxLength={200}
                   />
                 </Field>
@@ -784,16 +756,12 @@ export function TicketForm({
               type="button"
               onClick={() => setDeleting(true)}
             >
-              <Trash2 size={18} />
-              删除前售券
-            </button>
+              <Trash2 size={18} />{t('tickets.delete')}</button>
           )}
         </form>
       </main>
       <div className="bottom-bar">
-        <button className="button secondary" onClick={back}>
-          取消
-        </button>
+        <button className="button secondary" onClick={back}>{t('common.cancel')}</button>
         <button
           className="button primary grow"
           form="ticket-form"
@@ -801,31 +769,29 @@ export function TicketForm({
           disabled={submitting || (mode === 'photo' && !ocrReady)}
         >
           {ticket
-            ? '保存修改'
+            ? t('common.saveChanges')
             : mode === 'batch'
               ? rows
-                ? `保存有效的 ${validRows.length} 张`
-                : '解析并预览'
+                ? t('tickets.saveValid', { count: validRows.length })
+                : t('tickets.parsePreview')
               : mode === 'photo'
-                ? '确认并保存'
+                ? t('tickets.confirmSave')
                 : continuous
-                  ? '保存并继续添加'
-                  : '保存前售券'}
+                  ? t('tickets.saveContinue')
+                  : t('tickets.save')}
         </button>
       </div>
       {deleting && ticket && (
         <Sheet
-          title="删除前售券"
-          description={`将删除購入番号 ${ticket.number} 的前售券及其全部兑换数量、价格和备注，此操作无法撤销。`}
+          title={t('tickets.delete')}
+          description={t('tickets.deleteConfirm', { value1: ticket.number })}
           onClose={() => setDeleting(false)}
         >
           <div className="sheet-footer">
             <button
               className="button secondary"
               onClick={() => setDeleting(false)}
-            >
-              取消
-            </button>
+            >{t('common.cancel')}</button>
             <button
               className="button danger"
               onClick={async () => {
@@ -835,18 +801,16 @@ export function TicketForm({
                     (item) => item.id !== ticket.id,
                   ),
                 })) {
-                  notify('前售券已删除')
+                  notify('tickets.deleted')
                   back()
                 }
               }}
-            >
-              确认删除
-            </button>
+            >{t('common.confirmDelete')}</button>
           </div>
         </Sheet>
       )}
       {switching && (
-        <Sheet title="选择录入电影" onClose={() => setSwitching(false)}>
+        <Sheet title={t('tickets.chooseMovie')} onClose={() => setSwitching(false)}>
           <div className="sheet-body movie-options">
             {library.movies.map((item) => (
               <button

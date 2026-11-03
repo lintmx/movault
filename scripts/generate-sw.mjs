@@ -78,11 +78,11 @@ self.addEventListener('fetch', event => {
 self.addEventListener('message', event => {
   if (event.data?.type === 'activate-update') {
     event.waitUntil((async () => {
-      const reply = error => event.ports[0]?.postMessage({ error })
-      if (event.data.buildId !== BUILD_ID) return reply('新版本资源尚未就绪，请稍后重试。')
+      const reply = (error, errorKey) => event.ports[0]?.postMessage({ error, errorKey })
+      if (event.data.buildId !== BUILD_ID) return reply('新版本资源尚未就绪，请稍后重试。', 'updates.notReady')
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       if (clients.length !== 1 || clients[0].id !== event.source?.id) {
-        return reply('请先保存并关闭本站的其他标签页或应用窗口，再点击立即更新。')
+        return reply('请先保存并关闭本站的其他标签页或应用窗口，再点击立即更新。', 'updates.closeOtherWindows')
       }
       await self.skipWaiting()
       reply('')

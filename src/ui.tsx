@@ -1,3 +1,5 @@
+import { type Message, translateMessage, yen } from './i18n'
+import { useTranslation } from 'react-i18next'
 import { useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowLeft, Check, Copy, Database, Film, X } from 'lucide-react'
@@ -5,7 +7,6 @@ import {
   statuses,
   statusLabels,
   totals,
-  yen,
   type Movie,
   type Status,
   type Ticket,
@@ -20,14 +21,15 @@ export function Header({
   back?: () => void
   action?: ReactNode
 }) {
+  const { t } = useTranslation()
   return (
     <header className={`header ${back ? '' : 'home-header'}`}>
       {back ? (
-        <button className="icon-button" aria-label="返回" onClick={back}>
+        <button className="icon-button" aria-label={t('common.back')} onClick={back}>
           <ArrowLeft />
         </button>
       ) : (
-        <span className="wordmark">ムビチケ</span>
+        <span className="wordmark">{t('common.wordmark')}</span>
       )}
       {back && <h1>{title}</h1>}
       <div className="header-action">{action}</div>
@@ -36,8 +38,9 @@ export function Header({
 }
 
 export function DataButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation()
   return (
-    <button className="icon-button" aria-label="数据管理" onClick={onClick}>
+    <button className="icon-button" aria-label={t('backup.title')} onClick={onClick}>
       <Database />
     </button>
   )
@@ -50,19 +53,20 @@ export function Poster({
   movie: Pick<Movie, 'title' | 'poster'>
   className?: string
 }) {
+  const { t } = useTranslation()
   const [failed, setFailed] = useState(false)
   return (
     <div className={`poster ${className}`}>
       {movie.poster && !failed ? (
         <img
           src={movie.poster}
-          alt={`${movie.title} 海报`}
+          alt={t('movies.posterAlt', { value1: movie.title })}
           onError={() => setFailed(true)}
         />
       ) : (
         <div className="poster-placeholder">
           <Film />
-          <span>未设海报</span>
+          <span>{t('movies.noPoster')}</span>
         </div>
       )}
     </div>
@@ -86,12 +90,13 @@ export function Progress({
   tickets: Ticket[]
   reverse?: boolean
 }) {
+  const { t } = useTranslation()
   const counts = totals(tickets)
   return (
     <div
       className="progress"
       role="img"
-      aria-label={`未使用 ${counts.available} 次，待确认 ${counts.pending} 次，已使用 ${counts.used} 次`}
+      aria-label={t('stats.progressDescription', { value1: counts.available, value2: counts.pending, value3: counts.used })}
     >
       {(reverse ? [...statuses].reverse() : statuses).map((status) => (
         <span
@@ -107,54 +112,54 @@ export function Progress({
 }
 
 export function StatusLegend({ tickets }: { tickets: Ticket[] }) {
+  const { t } = useTranslation()
   const counts = totals(tickets)
   return (
     <div className="status-legend">
       {statuses.map((status) => (
         <span key={status}>
-          <i className={`dot ${status}`} />
-          {statusLabels[status]} {counts[status]} 次
-        </span>
+          <i className={`dot ${status}`} />{t('tickets.statusCount', { value1: t(statusLabels[status]), count: counts[status] })}</span>
       ))}
     </div>
   )
 }
 
 export function Statistics({ tickets }: { tickets: Ticket[] }) {
+  const { t } = useTranslation()
   const counts = totals(tickets)
   const rate = counts.total ? Math.round(counts.used / counts.total * 100) : 0
   return (
     <div className="stats-body">
       <div className="stat-overview">
-        <span>剩余可兑换次数</span>
-        <strong className="available-text">{counts.available} 次</strong>
+        <span>{t('stats.remaining')}</span>
+        <strong className="available-text">{t('tickets.count', { count: counts.available })}</strong>
       </div>
       <dl className="stats-list">
-        <div><dt>前售券记录</dt><dd>{tickets.length} 张</dd></div>
-        <div><dt>总兑换次数</dt><dd>{counts.total} 次</dd></div>
-        <div><dt>使用率</dt><dd>{rate}%</dd></div>
+        <div><dt>{t('stats.ticketRecords')}</dt><dd>{t('tickets.ticketCount', { count: tickets.length })}</dd></div>
+        <div><dt>{t('stats.totalRedemptions')}</dt><dd>{t('tickets.count', { count: counts.total })}</dd></div>
+        <div><dt>{t('stats.usageRate')}</dt><dd>{rate}%</dd></div>
       </dl>
-      <h3>兑换进度</h3>
+      <h3>{t('stats.progress')}</h3>
       <Progress tickets={tickets} />
       <dl className="stats-list">
         {statuses.map((status) => (
           <div key={status}>
-            <dt><i className={`dot ${status}`} />{statusLabels[status]}</dt>
-            <dd>{counts[status]} 次</dd>
+            <dt><i className={`dot ${status}`} />{t(statusLabels[status])}</dt>
+            <dd>{t('tickets.count', { count: counts[status] })}</dd>
           </div>
         ))}
       </dl>
-      <h3>金额分布（日元）</h3>
+      <h3>{t('stats.amounts')}</h3>
       <dl className="stats-list">
-        <div><dt>总购买金额</dt><dd>{yen(counts.price)}</dd></div>
+        <div><dt>{t('stats.totalPrice')}</dt><dd>{yen(counts.price)}</dd></div>
         {statuses.map((status) => (
           <div key={status}>
-            <dt>{statusLabels[status]}金额</dt>
+            <dt>{t('stats.statusAmount', { value1: t(statusLabels[status]) })}</dt>
             <dd>{yen(counts.amounts[status])}</dd>
           </div>
         ))}
       </dl>
-      <p className="hint">每张券总价按日元取整后按次数分摊，尾差补给小数余数较大的状态。</p>
+      <p className="hint">{t('stats.roundingHelp')}</p>
     </div>
   )
 }
@@ -170,6 +175,7 @@ export function Sheet({
   children: ReactNode
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [opener] = useState(() => document.activeElement as HTMLElement | null)
   return (
     <Dialog.Root
@@ -191,7 +197,7 @@ export function Sheet({
           <div className="sheet-heading">
             <Dialog.Title>{title}</Dialog.Title>
             <Dialog.Close asChild>
-              <button className="icon-button" aria-label="关闭">
+              <button className="icon-button" aria-label={t('common.close')}>
                 <X />
               </button>
             </Dialog.Close>
@@ -217,8 +223,9 @@ export function CopyButton({
   text: string
   label: string
   compact?: boolean
-  notify: (message: string) => void
+  notify: (message: Message) => void
 }) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   async function copy() {
     try {
@@ -226,7 +233,7 @@ export function CopyButton({
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1600)
     } catch {
-      notify('未能复制，请长按号码选择并复制。')
+      notify('common.copyFailed')
     }
   }
   return (
@@ -234,10 +241,10 @@ export function CopyButton({
       className={
         compact ? 'icon-button copy-button' : 'text-button primary-text'
       }
-      aria-label={copied ? '已复制' : label}
+      aria-label={copied ? t('common.copied') : label}
       onClick={copy}
     >
-      {compact ? copied ? <Check /> : <Copy /> : copied ? '已复制' : label}
+      {compact ? copied ? <Check /> : <Copy /> : copied ? t('common.copied') : label}
     </button>
   )
 }
@@ -273,7 +280,7 @@ export function Field({
   label: string
   id: string
   hint?: string
-  error?: string
+  error?: Message
   children: ReactNode
 }) {
   return (
@@ -285,7 +292,7 @@ export function Field({
       {children}
       {error && (
         <p className="field-error" id={`${id}-error`} role="alert">
-          {error}
+          {translateMessage(error)}
         </p>
       )}
     </div>

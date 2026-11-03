@@ -1,9 +1,9 @@
 {
   "id": "/",
-  "name": "Movault 前售券管理",
+  "name": "Movault",
   "short_name": "Movault",
-  "description": "在本地管理电影前售券、兑换次数和备份。",
-  "lang": "zh-CN",
+  "description": "Manage movie advance tickets, redemptions and backups on your device.",
+  "lang": "en",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

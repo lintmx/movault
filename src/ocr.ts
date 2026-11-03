@@ -14,7 +14,7 @@ export function createOcrClient(onOffline: (ready: boolean) => void) {
   let manifestPromise: Promise<Manifest> | undefined
   let cachePromise: Promise<boolean> | undefined
 
-  function cancel(reason: Error = new DOMException('已取消', 'AbortError')) {
+  function cancel(reason: Error = new DOMException('common.cancelled', 'AbortError')) {
     generation++
     worker?.terminate()
     worker = undefined
@@ -25,9 +25,9 @@ export function createOcrClient(onOffline: (ready: boolean) => void) {
 
   function request<T>(action: string, payload?: unknown, transfer: Transferable[] = [], timeout = 20000) {
     return new Promise<T>((resolve, reject) => {
-      if (!worker) return reject(new DOMException('已取消', 'AbortError'))
+      if (!worker) return reject(new DOMException('common.cancelled', 'AbortError'))
       const id = ++sequence
-      const timer = window.setTimeout(() => cancel(new Error('识别等待超时，请重试或手动填写。')), timeout)
+      const timer = window.setTimeout(() => cancel(new Error('ocr.timeout')), timeout)
       pending.set(id, { resolve: (value) => resolve(value as T), reject, timer })
       worker.postMessage({ id, action, payload }, transfer)
     })
@@ -40,7 +40,7 @@ export function createOcrClient(onOffline: (ready: boolean) => void) {
       }).then(async (response) => {
         if (!response.ok) throw new Error()
         return response.json() as Promise<Manifest>
-      }).catch(() => { manifestPromise = undefined; throw new Error('识别资源未准备好，请联网重试或手动录入。') })
+      }).catch(() => { manifestPromise = undefined; throw new Error('ocr.resourcesFailed') })
     }
     return manifestPromise
   }
@@ -71,7 +71,7 @@ export function createOcrClient(onOffline: (ready: boolean) => void) {
       const current = generation
       ready = (async () => {
         const manifest = await resources()
-        if (generation !== current || lifetime.signal.aborted) throw new DOMException('已取消', 'AbortError')
+        if (generation !== current || lifetime.signal.aborted) throw new DOMException('common.cancelled', 'AbortError')
         worker = new Worker(new URL(`${import.meta.env.BASE_URL}ocr/${manifest.version}/engine.js`, location.href))
         worker.onmessage = ({ data }) => {
           const job = pending.get(data.id)
@@ -81,7 +81,7 @@ export function createOcrClient(onOffline: (ready: boolean) => void) {
           if (data.error) job.reject(new Error(data.error))
           else job.resolve(data.result)
         }
-        worker.onerror = () => cancel(new Error('识别引擎加载失败，请重试或手动填写。'))
+        worker.onerror = () => cancel(new Error('ocr.engineFailed'))
         const caching = cachePromise ??= cacheResources(manifest)
         await request('init', undefined, [], 60000)
         void caching.then((cached) => {
@@ -129,7 +129,7 @@ export function canvas(width: number, height: number) {
 }
 
 export function toBlob(source: HTMLCanvasElement) {
-  return new Promise<Blob>((resolve, reject) => source.toBlob((blob) => blob ? resolve(blob) : reject(new Error('图片处理失败，请重新选择。')), 'image/png'))
+  return new Promise<Blob>((resolve, reject) => source.toBlob((blob) => blob ? resolve(blob) : reject(new Error('ocr.imageFailed')), 'image/png'))
 }
 
 export async function recognizeField(client: OcrClient, source: HTMLCanvasElement, length: number, isCurrent: () => boolean) {
@@ -139,9 +139,9 @@ export async function recognizeField(client: OcrClient, source: HTMLCanvasElemen
   ctx.drawImage(source, 12, 12)
   async function recognize() {
     const blob = await toBlob(input)
-    if (!isCurrent()) throw new DOMException('已取消', 'AbortError')
+    if (!isCurrent()) throw new DOMException('common.cancelled', 'AbortError')
     const result = await client.recognize(blob)
-    if (!isCurrent()) throw new DOMException('已取消', 'AbortError')
+    if (!isCurrent()) throw new DOMException('common.cancelled', 'AbortError')
     return result
   }
   try {
@@ -156,8 +156,8 @@ export async function recognizeField(client: OcrClient, source: HTMLCanvasElemen
     }
     ctx.putImageData(pixels, 0, 0)
     const second = normalizeCode((await recognize()).text)
-    if (validCode(value, length) && validCode(second, length) && value !== second) return { value: '', issue: '识别结果不一致，请对照图片填写。' }
+    if (validCode(value, length) && validCode(second, length) && value !== second) return { value: '', issue: 'ocr.inconsistent' }
     const selected = validCode(second, length) ? second : validCode(value, length) ? value : ''
-    return { value: selected, issue: selected ? '' : '未能识别，请对照图片填写。' }
+    return { value: selected, issue: selected ? '' : 'ocr.unrecognized' }
   } finally { input.width = 0; input.height = 0 }
 }

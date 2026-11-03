@@ -21,6 +21,18 @@ const version = {
 
 export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(version) },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'vendor', test: /[\\/]node_modules[\\/]/ },
+            { name: 'locales', test: /[\\/]src[\\/]locales[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
   plugins: [react(), {
     name: 'app-version',
     generateBundle() {

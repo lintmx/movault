@@ -1,3 +1,5 @@
+import { type Message, translateMessage, formatDateTime } from './i18n'
+import { useTranslation } from 'react-i18next'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import {
   AlertTriangle,
@@ -25,13 +27,14 @@ export function DataManagement({
 }: {
   library: Library
   save: (library: Library, replace?: boolean) => Promise<boolean>
-  notify: (message: string) => void
+  notify: (message: Message) => void
   needsBackup: boolean
   onExported: () => Promise<boolean>
   onExportingChange: (value: boolean) => void
   onShowSafety: () => void
   appVersion: ReturnType<typeof useAppVersion>
 }) {
+  const { t } = useTranslation()
   const [file, setFile] = useState<{
     name: string
     size: number
@@ -65,7 +68,7 @@ export function DataManagement({
     } catch (reason) {
       if (!controller.signal.aborted) setUpdateError(
         reason instanceof TypeError || (reason as Error).name === 'TimeoutError'
-          ? '更新失败，请检查网络后重试。' : (reason as Error).message,
+          ? 'updates.failed' : (reason as Error).message,
       )
     } finally {
       if (!controller.signal.aborted) setUpdating(false)
@@ -82,7 +85,7 @@ export function DataManagement({
     void Promise.all(library.movies.map(async (movie) => {
       if (!movie.poster.startsWith('/posters/')) return movie
       const response = await fetch(movie.poster)
-      if (!response.ok) throw new Error('海报读取失败')
+      if (!response.ok) throw new Error('errors.posterLoad')
       return { ...movie, poster: await readImage(await response.blob()) }
     })).then((movies) => {
       if (active) {
@@ -128,7 +131,7 @@ export function DataManagement({
       )
       const shared = !downloadOnly && !!navigator.share && !!navigator.canShare?.({ files: [backupFile] })
       if (shared) {
-        await navigator.share({ files: [backupFile], title: 'Movault 本地备份' })
+        await navigator.share({ files: [backupFile], title: t('backup.shareTitle') })
       } else {
         const url = URL.createObjectURL(backupFile)
         const anchor = document.createElement('a')
@@ -141,17 +144,17 @@ export function DataManagement({
       }
       try {
         const recorded = await onExported()
-        notify(!recorded ? '本地数据已在其他页面更新，本次仅导出了旧版本，请刷新后重新导出。'
-          : shared ? '备份已交给系统分享，请确认已保存到本机文件夹。' : '已发起备份下载，请确认文件已保存到本机。')
+        notify(!recorded ? 'backup.staleExport'
+          : shared ? 'backup.shared' : 'backup.downloaded')
       } catch {
-        notify('备份已发起，但无法记录导出状态，下次进入仍会提醒。请确认文件已保存。')
+        notify('backup.exportRecordFailed')
       }
     } catch (reason) {
       if (reason instanceof Error && reason.name === 'AbortError') {
-        notify('已取消分享，仍会提醒备份。')
+        notify('backup.shareCancelled')
       } else {
         setShareFailed(true)
-        notify('备份未导出，请重试或使用「直接下载」。')
+        notify('backup.exportFailed')
       }
     } finally {
       exportLock.current = false
@@ -174,7 +177,7 @@ export function DataManagement({
         setFile(null)
         setError(
           reason instanceof SyntaxError
-            ? '无法读取 JSON，请选择有效的备份文件。'
+            ? 'backup.invalidJson'
             : (reason as Error).message,
         )
       } finally {
@@ -216,8 +219,8 @@ export function DataManagement({
         setConfirm(false)
         notify(
           skipped || skippedMovies
-            ? `已导入，保留 ${skippedMovies} 部本地电影和 ${skipped} 张本地前售券`
-            : '备份已导入',
+            ? { key: 'backup.merged', values: { value1: skippedMovies, value2: skipped } }
+            : 'backup.imported',
         )
       }
     } finally {
@@ -226,52 +229,46 @@ export function DataManagement({
   }
   return (
     <>
-      <Header title="数据管理" back={() => { if (!updating) navigate('/') }} />
+      <Header title={t('backup.title')} back={() => { if (!updating) navigate('/') }} />
       <main className="page data-page">
         <fieldset disabled={updating}>
         <div className="notice">
           <Info size={16} />
-          <span>数据仅保存在当前浏览器，请定期导出备份。</span>
+          <span>{t('backup.localNotice')}</span>
         </div>
         <div className="local-summary">
           <div>
             <Database size={18} />
-            <strong>本地存储</strong>
+            <strong>{t('backup.localStorage')}</strong>
           </div>
-          <span>
-            {library.movies.length} 部电影，{library.tickets.length} 张券
-            <br />共 {totals(library.tickets).total} 次兑换
-          </span>
+          <span>{t('backup.recordCounts', { value1: library.movies.length, value2: library.tickets.length })}<br />{t('backup.redemptions', { count: totals(library.tickets).total })}</span>
         </div>
         <section className="data-section">
-          <h2>导出备份</h2>
-          <p>保存全部电影、海报、凭证号码、兑换状态、价格与备注。</p>
-          <p>分享时选择「存储到文件」→「在我的 iPhone / iPad」，或 Android 本地文件夹；不支持文件分享时会下载，无需云盘。</p>
-          <p className={needsBackup ? 'backup-pending' : 'hint'} role="status">
-            {needsBackup ? '当前数据有尚未导出的变更。' : '当前没有待导出的变更。'}
-            导出后请检查本机文件，浏览器无法确认最终保存位置。
-          </p>
+          <h2>{t('backup.export')}</h2>
+          <p>{t('backup.exportDescription')}</p>
+          <p>{t('backup.shareHelp')}</p>
+          <p className={needsBackup ? 'backup-pending' : 'hint'} role="status">{t('backup.verifyExport', { value1: needsBackup ? t('backup.pendingChanges') : t('backup.noChanges') })}</p>
           {prepareError ? (
             <>
-              <p className="field-error" role="alert">无法准备完整备份：请联网重试，或重新上传无法读取的海报。</p>
+              <p className="field-error" role="alert">{t('backup.prepareFailed')}</p>
               <button className="button secondary" onClick={() => {
                 setPrepareError(false)
                 setPrepareAttempt((value) => value + 1)
-              }}>重试准备备份</button>
+              }}>{t('backup.retryPrepare')}</button>
             </>
           ) : (
             <button className="button secondary" onClick={() => exportData()}
               disabled={exporting || prepared?.source !== library}>
               <Download size={18} />
-              {exporting ? '正在导出…' : prepared?.source !== library ? '正在准备备份…' : '导出 JSON'}
+              {exporting ? t('backup.exporting') : prepared?.source !== library ? t('backup.preparing') : t('backup.exportJson')}
             </button>
           )}
           {shareFailed && <button className="text-button primary-text backup-download" disabled={exporting || prepared?.source !== library}
-            onClick={() => exportData(true)}>直接下载</button>}
+            onClick={() => exportData(true)}>{t('backup.download')}</button>}
         </section>
         <section className="data-section">
-          <h2>导入备份</h2>
-          <p>从此前导出的备份文件恢复或合并前售券信息。</p>
+          <h2>{t('backup.import')}</h2>
+          <p>{t('backup.importDescription')}</p>
           <input
             hidden
             ref={picker}
@@ -290,14 +287,9 @@ export function DataManagement({
                 <button
                   className="text-button primary-text"
                   onClick={() => picker.current?.click()}
-                >
-                  更换文件
-                </button>
+                >{t('backup.changeFile')}</button>
               </div>
-              <p className="import-summary">
-                待导入：{file.data.movies.length} 部电影，
-                {file.data.tickets.length} 张前售券
-              </p>
+              <p className="import-summary">{t('backup.importPreview', { value1: file.data.movies.length, value2: file.data.tickets.length })}</p>
             </>
           ) : (
             <button
@@ -305,19 +297,19 @@ export function DataManagement({
               onClick={() => picker.current?.click()}
             >
               <Upload size={24} />
-              <span>选择备份文件</span>
-              <span className="hint">JSON 格式</span>
+              <span>{t('backup.chooseFile')}</span>
+              <span className="hint">{t('backup.jsonFormat')}</span>
             </button>
           )}
           {error && (
             <p className="field-error" role="alert">
-              {error}
+              {translateMessage(error)}
             </p>
           )}
           {file && (
             <>
               <fieldset className="import-strategies">
-                <legend className="sr-only">导入处理方式</legend>
+                <legend className="sr-only">{t('backup.strategy')}</legend>
                 <label
                   className={`import-option ${strategy === 'merge' ? 'selected' : ''}`}
                 >
@@ -328,10 +320,8 @@ export function DataManagement({
                     onChange={() => setStrategy('merge')}
                   />
                   <div>
-                    <strong>合并现有数据</strong>
-                    <span>
-                      按内部标识识别同一记录，冲突时保留本地版本；不同记录会合并加入，即使号码组合相同。
-                    </span>
+                    <strong>{t('backup.merge')}</strong>
+                    <span>{t('backup.mergeDescription')}</span>
                   </div>
                   {strategy === 'merge' && <Check size={18} />}
                 </label>
@@ -345,11 +335,8 @@ export function DataManagement({
                     onChange={() => setStrategy('replace')}
                   />
                   <div>
-                    <strong>覆盖现有数据</strong>
-                    <span>
-                      删除当前 {library.movies.length} 部电影与{' '}
-                      {library.tickets.length} 张券，替换为文件内容。
-                    </span>
+                    <strong>{t('backup.replace')}</strong>
+                    <span>{t('backup.replaceDescription', { value1: library.movies.length, value2: library.tickets.length })}</span>
                   </div>
                   {strategy === 'replace' && <Check size={18} />}
                 </label>
@@ -357,13 +344,13 @@ export function DataManagement({
               {strategy === 'merge' && duplicateImports > 0 && (
                 <div className="notice pending-text">
                   <AlertTriangle size={16} />
-                  <span>有 {duplicateImports} 条号码组合疑似重复，但属于不同记录，将一并导入，请核对。</span>
+                  <span>{t('backup.duplicates', { count: duplicateImports })}</span>
                 </div>
               )}
               {strategy === 'replace' && (
                 <div className="notice danger-notice">
                   <AlertTriangle size={16} />
-                  <span>覆盖后，当前未备份的数据无法恢复。</span>
+                  <span>{t('backup.replaceWarning')}</span>
                 </div>
               )}
               <button
@@ -372,7 +359,7 @@ export function DataManagement({
                   strategy === 'replace' ? setConfirm(true) : importData()
                 }
               >
-                {strategy === 'replace' ? '覆盖导入' : '确认导入'}
+                {strategy === 'replace' ? t('backup.replaceImport') : t('backup.confirmImport')}
               </button>
               <button
                 className="text-button full-width"
@@ -380,72 +367,65 @@ export function DataManagement({
                   setFile(null)
                   setError('')
                 }}
-              >
-                取消
-              </button>
+              >{t('common.cancel')}</button>
             </>
           )}
         </section>
         <section className="data-section">
-          <h2>数据保留与存储保护</h2>
-          <p>查看当前平台的清理规则、添加主屏幕的方法，以及存储保护申请。</p>
-          <button className="button secondary" onClick={onShowSafety}><Info size={18} />查看数据安全说明</button>
+          <h2>{t('safety.sectionTitle')}</h2>
+          <p>{t('safety.sectionDescription')}</p>
+          <button className="button secondary" onClick={onShowSafety}><Info size={18} />{t('safety.show')}</button>
         </section>
-        <section className="data-section version-section" aria-label="应用版本">
-          <h2>应用版本</h2>
+        <section className="data-section version-section" aria-label={t('updates.title')}>
+          <h2>{t('updates.title')}</h2>
           <dl className="version-details">
-            <div><dt>当前版本</dt><dd>{import.meta.env.DEV ? '开发版本' : currentVersion.label}</dd></div>
-            <div><dt>代码版本</dt><dd>{currentVersion.commit}</dd></div>
-            <div><dt>构建时间</dt><dd>{new Date(currentVersion.builtAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）</dd></div>
-            {appVersion.checkedAt && <div><dt>上次成功检查</dt><dd>{appVersion.checkedAt.toLocaleString('zh-CN', { hour12: false })}</dd></div>}
+            <div><dt>{t('updates.current')}</dt><dd>{import.meta.env.DEV ? t('updates.development') : currentVersion.label}</dd></div>
+            <div><dt>{t('updates.commit')}</dt><dd>{currentVersion.commit}</dd></div>
+            <div><dt>{t('updates.builtAt')}</dt><dd>{t('updates.beijingTime', { value1: formatDateTime(new Date(currentVersion.builtAt), 'Asia/Shanghai') })}</dd></div>
+            {appVersion.checkedAt && <div><dt>{t('updates.checkedAt')}</dt><dd>{formatDateTime(appVersion.checkedAt)}</dd></div>}
           </dl>
           <p role="status">
-            {import.meta.env.DEV ? '开发环境不检查线上更新。'
-              : updating ? '正在准备新版本，完成后将刷新页面…'
-                : appVersion.status === 'checking' ? '正在检查更新…'
-                  : appVersion.status === 'latest' ? '已是最新版本'
-                    : appVersion.status === 'available' ? `发现新版本：${appVersion.latest?.label}`
-                      : appVersion.status === 'error' ? '暂时无法确认最新版本，请联网后重试。' : '尚未检查更新'}
+            {import.meta.env.DEV ? t('updates.devNotice')
+              : updating ? t('updates.preparing')
+                : appVersion.status === 'checking' ? t('updates.checking')
+                  : appVersion.status === 'latest' ? t('updates.latest')
+                    : appVersion.status === 'available' ? t('updates.available', { value1: appVersion.latest?.label })
+                      : appVersion.status === 'error' ? t('updates.checkFailed') : t('updates.unchecked')}
           </p>
-          {updateError && <p className="field-error" role="alert">{updateError}</p>}
+          {updateError && <p className="field-error" role="alert">{translateMessage(updateError)}</p>}
           <div className="version-actions">
             <button className="button secondary" disabled={import.meta.env.DEV || appVersion.status === 'checking'}
               onClick={() => { setUpdateError(''); void appVersion.check(true) }}>
-              <RefreshCw size={18} />检查更新
-            </button>
+              <RefreshCw size={18} />{t('updates.check')}</button>
             {appVersion.status === 'available' && <button className="button primary" onClick={updateApp}
               disabled={!!file || exporting || importing || picking}>
-              <Download size={18} />{updating ? '正在更新…' : '立即更新'}
+              <Download size={18} />{updating ? t('updates.updating') : t('updates.apply')}
             </button>}
           </div>
           {appVersion.status === 'available' && <p className="version-help">
-            {file || picking ? '请先完成或取消备份导入，再更新应用。'
-              : exporting || importing ? '请等待导入或导出完成后再更新。'
-                : '更新后会刷新当前页面，已保存的票券数据会保留。'}
+            {file || picking ? t('updates.finishPicking')
+              : exporting || importing ? t('updates.waitForTransfer')
+                : t('updates.reloadNotice')}
           </p>}
         </section>
         <p className="hint" role="status">
-          {offlineReady ? '离线资源已就绪，可断网查看和管理前售券。'
-            : '首次联网加载并缓存资源后，可离线使用。'}
+          {offlineReady ? t('common.offlineReady')
+            : t('common.offlinePending')}
         </p>
         </fieldset>
       </main>
       {confirm && (
         <Sheet
-          title="覆盖本地数据"
-          description={`将用「${file?.name}」替换当前 ${library.movies.length} 部电影和 ${library.tickets.length} 张前售券。此操作无法撤销。`}
+          title={t('backup.replaceTitle')}
+          description={t('backup.replaceConfirm', { value1: file?.name, value2: library.movies.length, value3: library.tickets.length })}
           onClose={() => setConfirm(false)}
         >
           <div className="sheet-footer">
             <button
               className="button secondary"
               onClick={() => setConfirm(false)}
-            >
-              取消
-            </button>
-            <button className="button danger" onClick={importData}>
-              确认覆盖导入
-            </button>
+            >{t('common.cancel')}</button>
+            <button className="button danger" onClick={importData}>{t('backup.confirmReplace')}</button>
           </div>
         </Sheet>
       )}

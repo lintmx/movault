@@ -1,3 +1,5 @@
+import { type Message, translateMessage, formatDate } from './i18n'
+import { useTranslation } from 'react-i18next'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChartNoAxesColumn, ChevronRight, Plus, X } from 'lucide-react'
 import {
@@ -7,7 +9,6 @@ import {
   saveSafetyPreference,
   claimBackupReminder,
   totals,
-  formatDate,
   type Library,
 } from './data'
 import {
@@ -30,6 +31,7 @@ import { currentVersion, useAppVersion } from './version'
 import './styles.css'
 
 function App() {
+  const { t } = useTranslation()
   const appVersion = useAppVersion()
   const [library, setLibrary] = useState<Library | null>(null)
   const [error, setError] = useState('')
@@ -40,7 +42,7 @@ function App() {
   const exporting = useRef(false)
   const saving = useRef(false)
   const [route, setRoute] = useState(() => window.location.pathname)
-  const [toast, setToast] = useState('')
+  const [toast, setToast] = useState<Message>('')
   const [movieIndex, setMovieIndex] = useState(0)
   const [statisticsMovieId, setStatisticsMovieId] = useState('all')
 
@@ -100,14 +102,14 @@ function App() {
   async function save(next: Library, replace = false) {
     if (saving.current || !library) return false
     if (error && !replace) {
-      setToast('未保存：本地数据尚未成功读取，请刷新重试，或在数据管理中从备份覆盖恢复。')
+      setToast('errors.saveBeforeLoad')
       return false
     }
     saving.current = true
     try {
       const nextRevision = await saveLibrary(next, error && replace ? undefined : library)
       if (nextRevision === false) {
-        setToast('未保存：本地数据已在其他页面更新，请刷新后重试。')
+        setToast('errors.saveConflict')
         return false
       }
       setLibrary(next)
@@ -115,7 +117,7 @@ function App() {
       setError('')
       return true
     } catch {
-      setToast('未保存：本地存储不可用或空间不足，请先导出备份。')
+      setToast('errors.saveStorage')
       return false
     } finally {
       saving.current = false
@@ -124,9 +126,7 @@ function App() {
 
   if (!library)
     return (
-      <main className="page" role="status">
-        正在读取本地数据…
-      </main>
+      <main className="page" role="status">{t('common.loading')}</main>
     )
 
   const [, section, movieId, action, ticketId] = route.split('/')
@@ -154,12 +154,12 @@ function App() {
       ? statisticsMovieId : 'all'
     page = (
       <>
-        <Header title="统计" back={goHome} />
+        <Header title={t('stats.title')} back={goHome} />
         <main className="page statistics-page">
-          <Field id="statistics-movie" label="统计范围">
+          <Field id="statistics-movie" label={t('stats.scope')}>
             <select id="statistics-movie" value={selected}
               onChange={(event) => setStatisticsMovieId(event.target.value)}>
-              <option value="all">全部电影</option>
+              <option value="all">{t('movies.all')}</option>
               {library.movies.map((item) => (
                 <option key={item.id} value={item.id}>{item.title}</option>
               ))}
@@ -215,7 +215,7 @@ function App() {
   } else if (section === 'archive') {
     page = (
       <>
-        <Header title="全部电影" back={goHome} />
+        <Header title={t('movies.all')} back={goHome} />
         <main className="page archive-page">
           {library.movies.length ? (
             library.movies.map((item) => (
@@ -227,32 +227,24 @@ function App() {
                 <Poster movie={item} />
                 <div>
                   <h2>{item.title}</h2>
-                  <p>{formatDate(item.releaseDate)} 上映</p>
-                  <span className="available-text">
-                    剩余{' '}
-                    {
-                      totals(
+                  <p>{t('movies.release', { value1: formatDate(item.releaseDate) })}</p>
+                  <span className="available-text">{t('tickets.remaining', { count: totals(
                         library.tickets.filter(
                           (ticket) => ticket.movieId === item.id,
                         ),
-                      ).available
-                    }{' '}
-                    次
-                  </span>
+                      ).available })}</span>
                 </div>
                 <ChevronRight />
               </button>
             ))
           ) : (
             <EmptyState
-              title="暂无电影"
+              title={t('movies.empty')}
               action={
                 <button
                   className="button primary"
                   onClick={() => navigate('/new')}
-                >
-                  新建电影
-                </button>
+                >{t('movies.add')}</button>
               }
             />
           )}
@@ -262,13 +254,11 @@ function App() {
   } else if (section) {
     page = (
       <>
-        <Header title="页面不存在" back={goHome} />
+        <Header title={t('common.notFound')} back={goHome} />
         <EmptyState
-          title="未找到这部电影"
+          title={t('movies.notFound')}
           action={
-            <button className="button primary" onClick={goHome}>
-              返回首页
-            </button>
+            <button className="button primary" onClick={goHome}>{t('common.home')}</button>
           }
         />
       </>
@@ -287,7 +277,7 @@ function App() {
     <div className="app-shell">
       {error && (
         <div className="storage-error" role="alert">
-          {error}
+          {translateMessage(error)}
         </div>
       )}
       {page}
@@ -295,26 +285,26 @@ function App() {
         <DataSafety notify={setToast} onClose={() => {
           setSafetyOpen(false)
           void saveSafetyPreference('noticeSeen', true).catch(() => {
-            setToast('无法记录提示状态，下次进入时会再次显示。')
+            setToast('safety.noticeSaveFailed')
           })
         }} />
       )}
       {backupReminder && !safetyOpen && (
-        <Sheet title="有未导出的数据" description="本地数据有更新，尚未导出对应备份。请将最新备份保存到本机文件夹，以便浏览器数据丢失时恢复。"
+        <Sheet title={t('backup.reminderTitle')} description={t('backup.reminderDescription')}
           onClose={() => setBackupReminder(false)}>
           <div className="sheet-footer">
-            <button className="button secondary" onClick={() => setBackupReminder(false)}>三天后提醒</button>
+            <button className="button secondary" onClick={() => setBackupReminder(false)}>{t('backup.remindLater')}</button>
             <button className="button primary" onClick={() => {
               setBackupReminder(false)
               navigate('/data')
-            }}>去导出备份</button>
+            }}>{t('backup.goExport')}</button>
           </div>
         </Sheet>
       )}
       {toast && (
         <div className="toast" role="status">
-          <span>{toast}</span>
-          <button aria-label="关闭提示" onClick={() => setToast('')}>
+          <span>{translateMessage(toast)}</span>
+          <button aria-label={t('common.dismiss')} onClick={() => setToast('')}>
             <X size={16} />
           </button>
         </div>
@@ -334,6 +324,7 @@ function Home({
   setIndex: (index: number) => void
   updateAvailable: boolean
 }) {
+  const { t } = useTranslation()
   const [touchStart, setTouchStart] = useState<number | null>(null)
   const movie = library.movies[index]
   const tickets = library.tickets.filter(
@@ -343,10 +334,10 @@ function Home({
   return (
     <>
       <Header
-        title="前售券"
+        title={t('tickets.title')}
         action={
           <>
-            <button className="icon-button" aria-label="统计" onClick={() => navigate('/stats')}>
+            <button className="icon-button" aria-label={t('stats.title')} onClick={() => navigate('/stats')}>
               <ChartNoAxesColumn />
             </button>
             <DataButton onClick={() => navigate('/data')} />
@@ -357,16 +348,12 @@ function Home({
         <main className="page home-page">
           <div className="collection-heading">
             <span>
-              <i className="dot available" />
-              我的电影
-            </span>
-            <span>
-              {index + 1} / {library.movies.length} 部作品
-            </span>
+              <i className="dot available" />{t('movies.collection')}</span>
+            <span>{t('movies.position', { value1: index + 1, value2: library.movies.length })}</span>
           </div>
           <section
             className="movie-card"
-            aria-label="电影展示"
+            aria-label={t('movies.showcase')}
             onTouchStart={(event) => setTouchStart(event.touches[0].clientX)}
             onTouchEnd={(event) => {
               if (touchStart !== null) {
@@ -388,22 +375,22 @@ function Home({
             <button
               className="poster-link"
               onClick={() => navigate(`/movies/${movie.id}`)}
-              aria-label={`查看${movie.title}的前售券`}
+              aria-label={t('movies.viewTickets', { value1: movie.title })}
             >
               <Poster key={movie.id + movie.poster} movie={movie} />
             </button>
             <div className="movie-meta">
               <h2>{movie.title}</h2>
-              <p>{formatDate(movie.releaseDate)} 上映</p>
+              <p>{t('movies.release', { value1: formatDate(movie.releaseDate) })}</p>
             </div>
             <div className="movie-summary">
               <div className="summary-top">
                 <div>
-                  <strong>剩余 {counts.available} 次</strong>
-                  <span> / 共 {counts.total} 次</span>
+                  <strong>{t('tickets.remaining', { count: counts.available })}</strong>
+                  <span>{t('tickets.totalSuffix', { count: counts.total })}</span>
                 </div>
                 <Badge status={counts.available ? 'available' : 'used'}>
-                  {counts.available ? '可兑换' : '暂无可用'}
+                  {counts.available ? t('tickets.redeemable') : t('tickets.unavailable')}
                 </Badge>
               </div>
               <Progress tickets={tickets} reverse />
@@ -412,15 +399,13 @@ function Home({
             <button
               className="button primary full-width"
               onClick={() => navigate(`/movies/${movie.id}`)}
-            >
-              查看前售券列表
-              <ChevronRight size={18} />
+            >{t('tickets.viewList')}<ChevronRight size={18} />
             </button>
           </section>
-          <div className="carousel-controls" aria-label="切换电影">
+          <div className="carousel-controls" aria-label={t('movies.switch')}>
             <button
               className="icon-button"
-              aria-label="上一部电影"
+              aria-label={t('movies.previous')}
               disabled={index === 0}
               onClick={() => setIndex(index - 1)}
             >
@@ -430,7 +415,7 @@ function Home({
               {library.movies.map((item, i) => (
                 <button
                   key={item.id}
-                  aria-label={`跳转到第 ${i + 1} 部电影`}
+                  aria-label={t('movies.goTo', { value1: i + 1 })}
                   aria-current={index === i ? 'true' : undefined}
                   onClick={() => setIndex(i)}
                 >
@@ -440,7 +425,7 @@ function Home({
             </div>
             <button
               className="icon-button"
-              aria-label="下一部电影"
+              aria-label={t('movies.next')}
               disabled={index === library.movies.length - 1}
               onClick={() => setIndex(index + 1)}
             >
@@ -451,47 +436,37 @@ function Home({
             className="button secondary full-width"
             onClick={() => navigate('/new')}
           >
-            <Plus size={18} />
-            新建电影
-          </button>
+            <Plus size={18} />{t('movies.add')}</button>
           <button
             className="archive-link text-button"
             onClick={() => navigate('/archive')}
-          >
-            全部电影
-            <ArrowRight size={16} />
+          >{t('movies.all')}<ArrowRight size={16} />
           </button>
         </main>
       ) : (
         <main className="page">
           <EmptyState
-            title="暂无可兑换前售券"
+            title={t('tickets.emptyAvailable')}
             action={
               <>
                 <button
                   className="button primary full-width"
                   onClick={() => navigate('/new')}
                 >
-                  <Plus size={18} />
-                  新建电影
-                </button>
+                  <Plus size={18} />{t('movies.add')}</button>
                 <button
                   className="text-button"
                   onClick={() => navigate('/data')}
-                >
-                  从备份文件恢复
-                </button>
+                >{t('backup.restore')}</button>
               </>
             }
-          >
-            添加电影并录入購入番号与暗証番号，随时核对与管理兑换进度。
-          </EmptyState>
+          >{t('movies.getStarted')}</EmptyState>
         </main>
       )}
       <footer className="version-footer">
         <button className="text-button" onClick={() => navigate('/data')}>
-          {import.meta.env.DEV ? '开发版本' : `版本 ${currentVersion.label}`}
-          {updateAvailable && <span className="primary-text"> · 发现新版本</span>}
+          {import.meta.env.DEV ? t('updates.development') : t('updates.versionLabel', { value1: currentVersion.label })}
+          {updateAvailable && <span className="primary-text">{t('updates.availableSuffix')}</span>}
         </button>
       </footer>
     </>

@@ -28,13 +28,13 @@ const backupReminderInterval = 3 * 24 * 60 * 60 * 1000
 export const timestamp = () => new Date().toISOString()
 export const statuses: Status[] = ['available', 'pending', 'used']
 export const statusLabels: Record<Status, string> = {
-  available: '未使用',
-  pending: '待确认',
-  used: '已使用',
+  available: 'tickets.statusAvailable',
+  pending: 'tickets.statusPending',
+  used: 'tickets.statusUsed',
 }
 export const typeLabels: Record<TicketType, string> = {
-  physical: '实体券',
-  digital: '电子券',
+  physical: 'tickets.typePhysical',
+  digital: 'tickets.typeDigital',
 }
 export const credentialKey = (movieId: string, number: string, pin: string) =>
   JSON.stringify([movieId, number, pin])
@@ -43,15 +43,8 @@ export const navigate = (path: string) => {
   window.history.pushState(null, '', path)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
-export const yen = (amount: number) =>
-  `¥${Math.round(amount).toLocaleString('ja-JP')}`
 export const formatNumber = (number: string) =>
   number.replace(/^(\d{4})(\d{4})(\d{2})$/, '$1 $2 $3')
-export const formatDate = (date: string) =>
-  date
-    ? `${Number(date.slice(0, 4))}年${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`
-    : '上映日期未设置'
-
 export function totals(tickets: Ticket[]) {
   const counts = {
     available: 0,
@@ -91,7 +84,7 @@ function timestamps(record: { createdAt?: string; updatedAt?: string }, now: str
   if (
     typeof createdAt !== 'string' || typeof updatedAt !== 'string' ||
     !Number.isFinite(Date.parse(createdAt)) || !Number.isFinite(Date.parse(updatedAt))
-  ) throw new Error('创建时间或更新时间无效，请检查备份文件。')
+  ) throw new Error('errors.backupTimestamps')
   return {
     createdAt: new Date(createdAt).toISOString(),
     updatedAt: new Date(updatedAt).toISOString(),
@@ -101,9 +94,9 @@ function timestamps(record: { createdAt?: string; updatedAt?: string }, now: str
 export function parseLibrary(text: string): Library {
   const data = JSON.parse(text) as Library & { version?: number }
   if (!data || !Array.isArray(data.movies) || !Array.isArray(data.tickets))
-    throw new Error('文件格式不正确，请选择 Movault 导出的 JSON 备份。')
+    throw new Error('errors.backupFormat')
   if (data.version !== undefined && data.version !== schemaVersion)
-    throw new Error('不支持此备份的数据版本，请使用兼容版本的 Movault。')
+    throw new Error('errors.backupVersion')
   const now = timestamp()
   const movieIds = new Set<string>()
   for (const movie of data.movies) {
@@ -124,7 +117,7 @@ export function parseLibrary(text: string): Library {
           movie.poster,
         ))
     )
-      throw new Error('电影资料不完整或重复，请检查备份文件。')
+      throw new Error('errors.backupMovies')
     movieIds.add(movie.id)
   }
   const ticketIds = new Set<string>()
@@ -150,7 +143,7 @@ export function parseLibrary(text: string): Library {
       ticket.price < 0 ||
       typeof ticket.note !== 'string'
     )
-      throw new Error('前售券资料不完整、标识重复或兑换次数无效。')
+      throw new Error('errors.backupTickets')
     const count = statuses.reduce(
       (sum, status) => sum + ticket.counts[status],
       0,
@@ -160,7 +153,7 @@ export function parseLibrary(text: string): Library {
       count < 1 ||
       (ticket.type === 'physical' && count !== 1)
     )
-      throw new Error('前售券的兑换总次数不正确。')
+      throw new Error('errors.backupCounts')
     ticketIds.add(ticket.id)
   }
   return {
@@ -259,7 +252,7 @@ export async function readLibrary() {
       revision,
       exportedRevision,
       noticeSeen,
-      error: '本地数据无法读取，请重试或从备份恢复。',
+      error: 'errors.loadStorage',
     }
   }
 }
@@ -327,10 +320,10 @@ export async function claimBackupReminder() {
 export function readImage(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
-      return reject(new Error('请选择 JPG、PNG 或 WebP 图片。'))
+      return reject(new Error('errors.imageFormat'))
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(new Error('图片读取失败，请重新选择。'))
+    reader.onerror = () => reject(new Error('errors.imageRead'))
     reader.readAsDataURL(file)
   })
 }
