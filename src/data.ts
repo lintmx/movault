@@ -24,6 +24,7 @@ export type Movie = {
 export type Library = { movies: Movie[]; tickets: Ticket[] }
 
 export const schemaVersion = 1
+const backupReminderInterval = 3 * 24 * 60 * 60 * 1000
 export const timestamp = () => new Date().toISOString()
 export const statuses: Status[] = ['available', 'pending', 'used']
 export const statusLabels: Record<Status, string> = {
@@ -210,6 +211,11 @@ export async function saveLibrary(library: Library, previous?: Library) {
         }
         store.put({ version: schemaVersion, ...library }, 'current')
         store.put(revision, 'revision')
+        const reminderRequest = store.get('backupReminderAt')
+        reminderRequest.onsuccess = () => {
+          if (reminderRequest.result === undefined)
+            store.put(Date.now() + backupReminderInterval, 'backupReminderAt')
+        }
       }
     })
   } finally {
@@ -269,10 +275,48 @@ export async function saveSafetyPreference(key: 'noticeSeen' | 'exportedRevision
         const request = store.get('revision')
         request.onsuccess = () => {
           saved = (request.result ?? '') === value
-          if (saved) store.put(value, key)
+          if (saved) {
+            store.put(value, key)
+            store.delete('backupReminderAt')
+          }
         }
       } else store.put(value, key)
       transaction.oncomplete = () => resolve(saved)
+      transaction.onabort = () => reject(transaction.error)
+    })
+  } finally {
+    database.close()
+  }
+}
+
+export async function claimBackupReminder() {
+  const database = await openDatabase()
+  try {
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = database.transaction('library', 'readwrite')
+      const store = transaction.objectStore('library')
+      let revision = ''
+      let exportedRevision: string | null = null
+      let library: Library | undefined
+      let remind = false
+      const revisionRequest = store.get('revision')
+      revisionRequest.onsuccess = () => { revision = revisionRequest.result ?? '' }
+      const exportRequest = store.get('exportedRevision')
+      exportRequest.onsuccess = () => { exportedRevision = exportRequest.result ?? null }
+      const libraryRequest = store.get('current')
+      libraryRequest.onsuccess = () => { library = libraryRequest.result }
+      const reminderRequest = store.get('backupReminderAt')
+      reminderRequest.onsuccess = () => {
+        if (exportedRevision === revision || !(revision || library?.movies.length || library?.tickets.length)) return
+        const now = Date.now()
+        if (reminderRequest.result === undefined) {
+          store.put(now + backupReminderInterval, 'backupReminderAt')
+        } else if (now >= reminderRequest.result) {
+          remind = true
+          store.put(now + backupReminderInterval, 'backupReminderAt')
+        }
+      }
+      transaction.oncomplete = () => resolve(remind)
       transaction.onabort = () => reject(transaction.error)
     })
   } finally {

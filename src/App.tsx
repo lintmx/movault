@@ -5,6 +5,7 @@ import {
   readLibrary,
   saveLibrary,
   saveSafetyPreference,
+  claimBackupReminder,
   totals,
   formatDate,
   type Library,
@@ -50,8 +51,6 @@ function App() {
         setRevision(result.revision)
         setExportedRevision(result.exportedRevision)
         setSafetyOpen(!result.error && !result.noticeSeen)
-        setBackupReminder(!result.error && result.exportedRevision !== result.revision &&
-          !!(result.revision || result.data.movies.length || result.data.tickets.length))
       }
     })
     return () => {
@@ -60,25 +59,27 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!library || error || safetyOpen || backupReminder || route === '/data') return
     let active = true
     async function remind() {
-      if (document.visibilityState !== 'visible' || exporting.current || route === '/data') return
-      const result = await readLibrary()
-      if (!active || document.visibilityState !== 'visible' || exporting.current || result.error) return
-      setBackupReminder(result.exportedRevision !== result.revision &&
-        !!(result.revision || result.data.movies.length || result.data.tickets.length))
+      if (document.visibilityState !== 'visible' || exporting.current) return
+      const due = await claimBackupReminder().catch(() => false)
+      if (active && due) setBackupReminder(true)
     }
     function restore(event: PageTransitionEvent) {
       if (event.persisted) void remind()
     }
     document.addEventListener('visibilitychange', remind)
     window.addEventListener('pageshow', restore)
+    void remind()
+    const timer = window.setInterval(() => void remind(), 60000)
     return () => {
       active = false
       document.removeEventListener('visibilitychange', remind)
       window.removeEventListener('pageshow', restore)
+      window.clearInterval(timer)
     }
-  }, [route])
+  }, [route, library, error, safetyOpen, backupReminder])
 
   useEffect(() => {
     function change() {
@@ -299,7 +300,7 @@ function App() {
         <Sheet title="有未导出的数据" description="本地数据有更新，尚未导出对应备份。请将最新备份保存到本机文件夹，以便浏览器数据丢失时恢复。"
           onClose={() => setBackupReminder(false)}>
           <div className="sheet-footer">
-            <button className="button secondary" onClick={() => setBackupReminder(false)}>稍后提醒</button>
+            <button className="button secondary" onClick={() => setBackupReminder(false)}>三天后提醒</button>
             <button className="button primary" onClick={() => {
               setBackupReminder(false)
               navigate('/data')
