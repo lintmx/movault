@@ -2,6 +2,7 @@ import i18n from './i18n'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
+import { prefetchOcrResources } from './ocr'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -14,3 +15,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     console.error(i18n.t('common.offlineFailed'), error)
   })
 }
+
+function prefetchOcr() { void prefetchOcrResources().catch(() => {}) }
+prefetchOcr()
+window.addEventListener('online', prefetchOcr)

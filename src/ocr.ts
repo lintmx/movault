@@ -5,6 +5,111 @@ type Recognition = { text: string; confidence: number }
 export type Pixels = { data: Uint8ClampedArray<ArrayBuffer>; width: number; height: number }
 export type OcrClient = ReturnType<typeof createOcrClient>
 
+async function resources(signal: AbortSignal) {
+  const response = await fetch(`${import.meta.env.BASE_URL}ocr/manifest.json`, {
+    signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+  })
+  if (!response.ok) throw new Error('ocr.resourcesFailed')
+  return response.json() as Promise<Manifest>
+}
+
+async function loadResources(manifest: Manifest, signal: AbortSignal, onProgress: (percent: number) => void) {
+  const relaxed = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,15,1,13,0,65,1,253,15,65,2,253,15,253,128,2,11]))
+  const simd = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]))
+  const core = `tesseract-core-${relaxed ? 'relaxedsimd-' : simd ? 'simd-' : ''}lstm.wasm.js`
+  const names = ['engine.js', 'opencv.js', 'tesseract.min.js', 'worker.min.js', core, 'eng.traineddata']
+  const files = names.map((name) => {
+    const file = manifest.files.find((entry) => entry.name === name)
+    if (!file?.path) throw new Error('ocr.resourcesFailed')
+    return file
+  })
+  let cache: Cache | undefined
+  try { cache = await caches.open(`movault-ocr-${manifest.version}`) } catch { /* Recognition also works without persistent storage. */ }
+  let cached = !!cache
+  const loaded = new Map<string, number>(), data = new Map<string, ArrayBuffer>()
+  const total = files.reduce((sum, file) => sum + file.size, 0)
+  function progress(name: string, size: number) {
+    loaded.set(name, size)
+    if (!signal.aborted) onProgress(Math.min(99, Math.floor([...loaded.values()].reduce((a, b) => a + b, 0) / total * 100)))
+  }
+  await Promise.all(Array.from({ length: 3 }, async () => {
+    for (let file = files.shift(); file; file = files.shift()) {
+      const url = new URL(`${import.meta.env.BASE_URL}ocr/${file.path}`, location.href).href
+      for (let attempt = 0; attempt < 2; attempt++) {
+        signal.throwIfAborted()
+        const stalled = new AbortController()
+        let timer = window.setTimeout(() => stalled.abort(), 15000)
+        try {
+          let response: Response | undefined
+          if (!attempt) try { response = await caches.match(url) } catch { /* Storage may be unavailable. */ }
+          response ??= await fetch(url, { cache: attempt ? 'reload' : 'default', signal: AbortSignal.any([signal, stalled.signal]) })
+          if (!response.ok || !response.body) throw new Error('ocr.resourcesFailed')
+          const reader = response.body.getReader(), chunks: Uint8Array[] = []
+          let size = 0
+          for (;;) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            clearTimeout(timer)
+            timer = window.setTimeout(() => stalled.abort(), 15000)
+            chunks.push(chunk.value); size += chunk.value.length; progress(file.name, size)
+          }
+          const bytes = new Uint8Array(size)
+          let offset = 0
+          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+          const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (n) => n.toString(16).padStart(2, '0')).join('')
+          if (size !== file.size || hash !== file.sha256) {
+            for (const key of await caches.keys()) {
+              if (key.startsWith('movault-ocr-')) await (await caches.open(key)).delete(url)
+            }
+            throw new Error('ocr.resourcesFailed')
+          }
+          signal.throwIfAborted()
+          data.set(file.name, bytes.buffer)
+          if (cache) try { await cache.put(url, new Response(bytes)) } catch { cached = false }
+          break
+        } catch (error) {
+          if (signal.aborted) throw signal.reason
+          if (attempt) throw error
+          progress(file.name, 0)
+        } finally { clearTimeout(timer) }
+      }
+    }
+  }))
+  return { data, core, cached }
+}
+
+let preloading: Promise<{ manifest: Manifest } & Awaited<ReturnType<typeof loadResources>>> | undefined
+let resourceProgress = 0
+const progressListeners = new Set<(percent: number) => void>()
+
+function sharedResources() {
+  if (!preloading) {
+    const controller = new AbortController()
+    const { signal } = controller
+    resourceProgress = 0
+    const timeout = window.setTimeout(() => controller.abort(new Error('ocr.resourcesFailed')), 120000)
+    const aborted = new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+    preloading = Promise.race([aborted, (async () => {
+      const manifest = await resources(signal)
+      const result = await loadResources(manifest, signal, (percent) => {
+        resourceProgress = percent
+        progressListeners.forEach((listener) => listener(percent))
+      })
+      return { manifest, ...result }
+    })()]).finally(() => {
+      clearTimeout(timeout)
+      controller.abort()
+      preloading = undefined
+    })
+  }
+  return preloading
+}
+
+export async function prefetchOcrResources() {
+  const { manifest, cached } = await sharedResources()
+  if (cached) navigator.serviceWorker?.controller?.postMessage({ type: 'ocr-ready', version: manifest.version })
+}
+
 export function createOcrClient(onOffline: (ready: boolean) => void, onProgress: (percent: number | null) => void = () => {}) {
   let worker: Worker | undefined
   let ready: Promise<void> | undefined
@@ -37,79 +142,6 @@ export function createOcrClient(onOffline: (ready: boolean) => void, onProgress:
     })
   }
 
-  async function resources(signal: AbortSignal) {
-    const response = await fetch(`${import.meta.env.BASE_URL}ocr/manifest.json`, {
-      signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-    })
-    if (!response.ok) throw new Error('ocr.resourcesFailed')
-    return response.json() as Promise<Manifest>
-  }
-
-  async function loadResources(manifest: Manifest, signal: AbortSignal) {
-    const relaxed = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,15,1,13,0,65,1,253,15,65,2,253,15,253,128,2,11]))
-    const simd = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]))
-    const core = `tesseract-core-${relaxed ? 'relaxedsimd-' : simd ? 'simd-' : ''}lstm.wasm.js`
-    const names = ['engine.js', 'opencv.js', 'tesseract.min.js', 'worker.min.js', core, 'eng.traineddata']
-    const files = names.map((name) => {
-      const file = manifest.files.find((entry) => entry.name === name)
-      if (!file?.path) throw new Error('ocr.resourcesFailed')
-      return file
-    })
-    let cache: Cache | undefined
-    try { cache = await caches.open(`movault-ocr-${manifest.version}`) } catch { /* Recognition also works without persistent storage. */ }
-    let cached = !!cache
-    const loaded = new Map<string, number>(), data = new Map<string, ArrayBuffer>()
-    const total = files.reduce((sum, file) => sum + file.size, 0)
-    function progress(name: string, size: number) {
-      loaded.set(name, size)
-      if (!signal.aborted) onProgress(Math.min(99, Math.floor([...loaded.values()].reduce((a, b) => a + b, 0) / total * 100)))
-    }
-    await Promise.all(Array.from({ length: 3 }, async () => {
-      for (let file = files.shift(); file; file = files.shift()) {
-        const url = new URL(`${import.meta.env.BASE_URL}ocr/${file.path}`, location.href).href
-        for (let attempt = 0; attempt < 2; attempt++) {
-          signal.throwIfAborted()
-          const stalled = new AbortController()
-          let timer = window.setTimeout(() => stalled.abort(), 15000)
-          try {
-            let response: Response | undefined
-            if (!attempt) try { response = await caches.match(url) } catch { /* Storage may be unavailable. */ }
-            response ??= await fetch(url, { cache: attempt ? 'reload' : 'default', signal: AbortSignal.any([signal, stalled.signal]) })
-            if (!response.ok || !response.body) throw new Error('ocr.resourcesFailed')
-            const reader = response.body.getReader(), chunks: Uint8Array[] = []
-            let size = 0
-            for (;;) {
-              const chunk = await reader.read()
-              if (chunk.done) break
-              clearTimeout(timer)
-              timer = window.setTimeout(() => stalled.abort(), 15000)
-              chunks.push(chunk.value); size += chunk.value.length; progress(file.name, size)
-            }
-            const bytes = new Uint8Array(size)
-            let offset = 0
-            for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-            const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (n) => n.toString(16).padStart(2, '0')).join('')
-            if (size !== file.size || hash !== file.sha256) {
-              for (const key of await caches.keys()) {
-                if (key.startsWith('movault-ocr-')) await (await caches.open(key)).delete(url)
-              }
-              throw new Error('ocr.resourcesFailed')
-            }
-            signal.throwIfAborted()
-            data.set(file.name, bytes.buffer)
-            if (cache) try { await cache.put(url, new Response(bytes)) } catch { cached = false }
-            break
-          } catch (error) {
-            if (signal.aborted) throw signal.reason
-            if (attempt) throw error
-            progress(file.name, 0)
-          } finally { clearTimeout(timer) }
-        }
-      }
-    }))
-    return { data, core, cached }
-  }
-
   function script(parts: BlobPart[]) {
     const url = URL.createObjectURL(new Blob(parts, { type: 'text/javascript' }))
     urls.push(url)
@@ -122,12 +154,13 @@ export function createOcrClient(onOffline: (ready: boolean) => void, onProgress:
       const controller = new AbortController()
       loading = controller
       const { signal } = controller
-      onProgress(0)
+      const progress = (percent: number) => { if (!signal.aborted) onProgress(percent) }
+      progressListeners.add(progress)
+      onProgress(preloading ? resourceProgress : 0)
       const timeout = window.setTimeout(() => controller.abort(new Error('ocr.resourcesFailed')), 120000)
       const aborted = new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
       ready = Promise.race([aborted, (async () => {
-        const manifest = await resources(signal)
-        const { data, core, cached } = await loadResources(manifest, signal)
+        const { manifest, data, core, cached } = await sharedResources().finally(() => progressListeners.delete(progress))
         signal.throwIfAborted()
         if (lifetime.signal.aborted) throw new DOMException('common.cancelled', 'AbortError')
         onProgress(100)
@@ -161,6 +194,7 @@ export function createOcrClient(onOffline: (ready: boolean) => void, onProgress:
         throw reason
       }).finally(() => {
         clearTimeout(timeout)
+        progressListeners.delete(progress)
         if (generation === current) { loading = undefined; onProgress(null) }
       })
     }
