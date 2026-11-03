@@ -119,6 +119,10 @@ export function createOcrClient(onOffline: (ready: boolean) => void) {
       await initialize()
       return request<Recognition>('recognize', blob)
     },
+    async prepare(pixels: ImageData, adaptive: boolean) {
+      await initialize()
+      return request<Pixels>('prepare', { pixels, adaptive }, [pixels.data.buffer])
+    },
   }
 }
 
@@ -135,29 +139,29 @@ export function toBlob(source: HTMLCanvasElement) {
 export async function recognizeField(client: OcrClient, source: HTMLCanvasElement, length: number, isCurrent: () => boolean) {
   const input = canvas(source.width + 24, source.height + 24)
   const ctx = input.getContext('2d', { willReadFrequently: true })!
-  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, input.width, input.height)
-  ctx.drawImage(source, 12, 12)
-  async function recognize() {
-    const blob = await toBlob(input)
+  async function recognize(image: HTMLCanvasElement) {
+    const blob = await toBlob(image)
     if (!isCurrent()) throw new DOMException('common.cancelled', 'AbortError')
     const result = await client.recognize(blob)
     if (!isCurrent()) throw new DOMException('common.cancelled', 'AbortError')
     return result
   }
   try {
-    const first = await recognize()
-    const value = normalizeCode(first.text)
-    if (validCode(value, length) && first.confidence >= 85) return { value, issue: '' }
-    const pixels = ctx.getImageData(0, 0, input.width, input.height)
-    for (let i = 0; i < pixels.data.length; i += 4) {
-      const gray = .299 * pixels.data[i] + .587 * pixels.data[i + 1] + .114 * pixels.data[i + 2]
-      const color = gray > 145 ? 255 : 0
-      pixels.data[i] = color; pixels.data[i + 1] = color; pixels.data[i + 2] = color
+    const results = [await recognize(source)]
+    for (const adaptive of [true, false]) {
+      ctx.fillStyle = 'white'; ctx.fillRect(0, 0, input.width, input.height)
+      ctx.drawImage(source, 12, 12)
+      const prepared = await client.prepare(ctx.getImageData(0, 0, input.width, input.height), adaptive)
+      if (!isCurrent()) throw new DOMException('common.cancelled', 'AbortError')
+      ctx.putImageData(new ImageData(prepared.data, prepared.width, prepared.height), 0, 0)
+      const result = await recognize(input)
+      const value = normalizeCode(result.text)
+      if (validCode(value, length) && results.some((previous) => normalizeCode(previous.text) === value)) return { value, issue: '' }
+      results.push(result)
     }
-    ctx.putImageData(pixels, 0, 0)
-    const second = normalizeCode((await recognize()).text)
-    if (validCode(value, length) && validCode(second, length) && value !== second) return { value: '', issue: 'ocr.inconsistent' }
-    const selected = validCode(second, length) ? second : validCode(value, length) ? value : ''
-    return { value: selected, issue: selected ? '' : 'ocr.unrecognized' }
+    const valid = results.filter((result) => validCode(normalizeCode(result.text), length))
+    if (new Set(valid.map((result) => normalizeCode(result.text))).size > 1) return { value: '', issue: 'ocr.inconsistent' }
+    const selected = valid.find((result) => result.confidence >= 85)
+    return { value: selected ? normalizeCode(selected.text) : '', issue: selected ? '' : 'ocr.unrecognized' }
   } finally { input.width = 0; input.height = 0 }
 }

@@ -2,7 +2,7 @@ export type Point = { x: number; y: number }
 export type Quad = [Point, Point, Point, Point]
 export type Rect = { x: number; y: number; width: number; height: number }
 export const regions: [Rect, Rect] = [
-  { x: .520, y: .348, width: .250, height: .062 },
+  { x: .515, y: .355, width: .265, height: .070 },
   { x: .810, y: .040, width: .130, height: .075 },
 ]
 

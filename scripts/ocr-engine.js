@@ -36,7 +36,9 @@ function refineCorners(contour, points) {
       const next = (i + 1) % contour.rows
       const x = contour.data32S[i * 2], y = contour.data32S[i * 2 + 1]
       const ex = contour.data32S[next * 2] - x, ey = contour.data32S[next * 2 + 1] - y
-      for (const f of [.25, .5, .75]) {
+      const steps = Math.max(1, Math.ceil(Math.hypot(ex, ey) / 2))
+      for (let step = 0; step < steps; step++) {
+        const f = (step + .5) / steps
         const px = x + ex * f, py = y + ey * f
         const t = ((px - a.x) * dx + (py - a.y) * dy) / (length * length)
         const distance = Math.abs((px - a.x) * dy - (py - a.y) * dx) / length
@@ -45,7 +47,7 @@ function refineCorners(contour, points) {
     }
     if (samples.length < 6) return points
     const input = c.matFromArray(samples.length / 2, 1, c.CV_32FC2, samples), line = new c.Mat()
-    try { c.fitLine(input, line, c.DIST_L2, 0, .01, .01); lines.push(Array.from(line.data32F)) }
+    try { c.fitLine(input, line, c.DIST_HUBER, 0, .01, .01); lines.push(Array.from(line.data32F)) }
     finally { input.delete(); line.delete() }
   }
   return points.map((point, i) => {
@@ -64,24 +66,35 @@ function detect(pixels) {
   try {
     c.cvtColor(src, gray, c.COLOR_RGBA2GRAY)
     c.GaussianBlur(gray, gray, new c.Size(5, 5), 0)
-    c.threshold(gray, mask, 0, 255, c.THRESH_BINARY + c.THRESH_OTSU)
-    c.findContours(mask, contours, hierarchy, c.RETR_EXTERNAL, c.CHAIN_APPROX_SIMPLE)
     const candidates = []
-    for (let i = 0; i < contours.size(); i++) {
-      const contour = contours.get(i), approx = new c.Mat()
-      try {
-        const area = c.contourArea(contour) / (src.cols * src.rows)
-        if (area < .15 || area > .98) continue
-        c.approxPolyDP(contour, approx, .025 * c.arcLength(contour, true), true)
-        if (approx.rows !== 4 || !c.isContourConvex(approx)) continue
-        let points = refineCorners(contour, order(Array.from({ length: 4 }, (_, j) => ({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] }))))
-        const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
-        if (distance(points[0], points[1]) < distance(points[1], points[2])) points = [...points.slice(1), points[0]]
-        const ratio = (distance(points[0], points[1]) + distance(points[2], points[3])) /
-          (distance(points[1], points[2]) + distance(points[3], points[0]))
-        if (ratio < 1.2 || ratio > 2.15) continue
-        candidates.push({ points, area })
-      } finally { contour.delete(); approx.delete() }
+    for (const edges of [false, true]) {
+      if (edges) {
+        c.Canny(gray, mask, 30, 90)
+        const kernel = c.Mat.ones(3, 3, c.CV_8U)
+        try { c.morphologyEx(mask, mask, c.MORPH_CLOSE, kernel) }
+        finally { kernel.delete() }
+      } else c.threshold(gray, mask, 0, 255, c.THRESH_BINARY + c.THRESH_OTSU)
+      c.findContours(mask, contours, hierarchy, edges ? c.RETR_LIST : c.RETR_EXTERNAL, c.CHAIN_APPROX_SIMPLE)
+      for (let i = 0; i < contours.size(); i++) {
+        const contour = contours.get(i), approx = new c.Mat()
+        try {
+          const area = c.contourArea(contour) / (src.cols * src.rows)
+          if (area < .15 || area > .98) continue
+          c.approxPolyDP(contour, approx, .025 * c.arcLength(contour, true), true)
+          if (approx.rows !== 4 || !c.isContourConvex(approx)) continue
+          let points = order(Array.from({ length: 4 }, (_, j) => ({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] })))
+          if (points.some((p) => p.x <= 1 || p.y <= 1 || p.x >= src.cols - 2 || p.y >= src.rows - 2)) continue
+          points = refineCorners(contour, points)
+          if (points.some((p) => p.x < 0 || p.y < 0 || p.x >= src.cols || p.y >= src.rows)) continue
+          const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+          if (distance(points[0], points[1]) < distance(points[1], points[2])) points = [...points.slice(1), points[0]]
+          const ratio = (distance(points[0], points[1]) + distance(points[2], points[3])) /
+            (distance(points[1], points[2]) + distance(points[3], points[0]))
+          if (ratio < 1.2 || ratio > 2.15) continue
+          if (candidates.some((candidate) => points.every((p, j) => distance(p, candidate.points[j]) < Math.min(src.cols, src.rows) * .025))) continue
+          candidates.push({ points, area })
+        } finally { contour.delete(); approx.delete() }
+      }
     }
     candidates.sort((a, b) => b.area - a.area)
     if (!candidates.length || (candidates[1] && candidates[1].area > candidates[0].area * .65)) return null
@@ -117,12 +130,28 @@ function warp({ pixels, points, width, height }) {
   } finally { src.delete(); dst.delete(); input.delete(); output.delete(); transform.delete() }
 }
 
+function prepare({ pixels, adaptive }) {
+  const c = vision
+  for (let i = 0; i < pixels.data.length; i += 4) {
+    const gray = Math.max(pixels.data[i], pixels.data[i + 1])
+    pixels.data[i] = gray; pixels.data[i + 1] = gray; pixels.data[i + 2] = gray
+  }
+  const src = c.matFromImageData(pixels), gray = new c.Mat()
+  try {
+    c.cvtColor(src, gray, c.COLOR_RGBA2GRAY)
+    if (adaptive) c.adaptiveThreshold(gray, gray, 255, c.ADAPTIVE_THRESH_GAUSSIAN_C, c.THRESH_BINARY, 31, 10)
+    c.cvtColor(gray, src, c.COLOR_GRAY2RGBA)
+    return { data: new Uint8ClampedArray(src.data), width: src.cols, height: src.rows }
+  } finally { src.delete(); gray.delete() }
+}
+
 self.onmessage = async ({ data: { id, action, payload } }) => {
   try {
     let result
     if (action === 'init') result = await initialize()
     else if (action === 'detect') result = detect(payload)
     else if (action === 'warp') result = warp(payload)
+    else if (action === 'prepare') result = prepare(payload)
     else if (action === 'recognize') {
       const { data } = await recognizer.recognize(payload)
       result = { text: data.text, confidence: data.confidence }

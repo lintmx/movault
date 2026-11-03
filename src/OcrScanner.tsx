@@ -231,7 +231,7 @@ export function OcrScanner({ number, pin, onNumber, onPin, onReady, resetToken, 
     if (directCrop) return { image: input, lowResolution }
     try {
       const result = await client.current!.warp(ctx.getImageData(0, 0, input.width, input.height),
-        points.map((p) => ({ x: (p.x - left) * scale, y: (p.y - top) * scale })) as Quad, index === 0 ? 600 : 312, index === 0 ? 94 : 112)
+        points.map((p) => ({ x: (p.x - left) * scale, y: (p.y - top) * scale })) as Quad, index === 0 ? 636 : 312, index === 0 ? 105 : 112)
       if (task !== sequence.current) throw new DOMException('common.cancelled', 'AbortError')
       const output = canvas(result.width, result.height)
       output.getContext('2d')!.putImageData(new ImageData(result.data, result.width, result.height), 0, 0)
