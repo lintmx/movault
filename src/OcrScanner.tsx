@@ -55,6 +55,7 @@ function NumberComparison({ source, value, length, id, label, disabled, invalid,
       </button>
       <input className="ocr-code" id={id} aria-label={label} type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
         value={value} disabled={disabled} aria-invalid={invalid} aria-describedby={invalid && !enlarged ? `${id}-error` : undefined}
+        onBlur={(event) => { event.currentTarget.scrollLeft = 0 }}
         onChange={(event) => onChange(normalizeCode(event.target.value))} />
       {aligned && <div className="ocr-digit-guides" aria-hidden="true">{Array.from({ length: length - 1 }, (_, i) =>
         <span key={i} style={{ left: `${(start + (i + .5) * step) * 100}%` }} />
