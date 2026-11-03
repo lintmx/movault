@@ -6,10 +6,12 @@ import {
   Download,
   FileJson,
   Info,
+  RefreshCw,
   Upload,
 } from 'lucide-react'
 import { credentialKey, navigate, parseLibrary, readImage, schemaVersion, totals, type Library } from './data'
 import { Header, Sheet } from './ui'
+import { applyUpdate, currentVersion, type useAppVersion } from './version'
 
 export function DataManagement({
   library,
@@ -19,6 +21,7 @@ export function DataManagement({
   onExported,
   onExportingChange,
   onShowSafety,
+  appVersion,
 }: {
   library: Library
   save: (library: Library, replace?: boolean) => Promise<boolean>
@@ -27,6 +30,7 @@ export function DataManagement({
   onExported: () => Promise<boolean>
   onExportingChange: (value: boolean) => void
   onShowSafety: () => void
+  appVersion: ReturnType<typeof useAppVersion>
 }) {
   const [file, setFile] = useState<{
     name: string
@@ -43,7 +47,30 @@ export function DataManagement({
   const [prepareAttempt, setPrepareAttempt] = useState(0)
   const [shareFailed, setShareFailed] = useState(false)
   const [offlineReady, setOfflineReady] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [updateError, setUpdateError] = useState('')
+  const updateController = useRef<AbortController | null>(null)
   const picker = useRef<HTMLInputElement>(null)
+  useEffect(() => () => updateController.current?.abort(), [])
+  async function updateApp() {
+    if (updating || file || importing || picking || exporting) return
+    const controller = new AbortController()
+    updateController.current = controller
+    setUpdating(true)
+    setUpdateError('')
+    try {
+      await applyUpdate(controller.signal)
+    } catch (reason) {
+      if (!controller.signal.aborted) setUpdateError(
+        reason instanceof TypeError || (reason as Error).name === 'TimeoutError'
+          ? '更新失败，请检查网络后重试。' : (reason as Error).message,
+      )
+    } finally {
+      if (!controller.signal.aborted) setUpdating(false)
+    }
+  }
   useEffect(() => {
     let active = true
     if ('serviceWorker' in navigator)
@@ -135,6 +162,7 @@ export function DataManagement({
   async function pickFile(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0]
     if (selected) {
+      setPicking(true)
       try {
         setFile({
           name: selected.name,
@@ -149,6 +177,8 @@ export function DataManagement({
             ? '无法读取 JSON，请选择有效的备份文件。'
             : (reason as Error).message,
         )
+      } finally {
+        setPicking(false)
       }
     }
     event.target.value = ''
@@ -179,20 +209,26 @@ export function DataManagement({
         tickets: [...library.tickets, ...additions],
       }
     }
-    if (await save(next, strategy === 'replace')) {
-      setFile(null)
-      setConfirm(false)
-      notify(
-        skipped || skippedMovies
-          ? `已导入，保留 ${skippedMovies} 部本地电影和 ${skipped} 张本地前售券`
-          : '备份已导入',
-      )
+    setImporting(true)
+    try {
+      if (await save(next, strategy === 'replace')) {
+        setFile(null)
+        setConfirm(false)
+        notify(
+          skipped || skippedMovies
+            ? `已导入，保留 ${skippedMovies} 部本地电影和 ${skipped} 张本地前售券`
+            : '备份已导入',
+        )
+      }
+    } finally {
+      setImporting(false)
     }
   }
   return (
     <>
-      <Header title="数据管理" back={() => navigate('/')} />
+      <Header title="数据管理" back={() => { if (!updating) navigate('/') }} />
       <main className="page data-page">
+        <fieldset disabled={updating}>
         <div className="notice">
           <Info size={16} />
           <span>数据仅保存在当前浏览器，请定期导出备份。</span>
@@ -355,10 +391,44 @@ export function DataManagement({
           <p>查看当前平台的清理规则、添加主屏幕的方法，以及存储保护申请。</p>
           <button className="button secondary" onClick={onShowSafety}><Info size={18} />查看数据安全说明</button>
         </section>
+        <section className="data-section version-section" aria-label="应用版本">
+          <h2>应用版本</h2>
+          <dl className="version-details">
+            <div><dt>当前版本</dt><dd>{import.meta.env.DEV ? '开发版本' : currentVersion.label}</dd></div>
+            <div><dt>代码版本</dt><dd>{currentVersion.commit}</dd></div>
+            <div><dt>构建时间</dt><dd>{new Date(currentVersion.builtAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）</dd></div>
+            {appVersion.checkedAt && <div><dt>上次成功检查</dt><dd>{appVersion.checkedAt.toLocaleString('zh-CN', { hour12: false })}</dd></div>}
+          </dl>
+          <p role="status">
+            {import.meta.env.DEV ? '开发环境不检查线上更新。'
+              : updating ? '正在准备新版本，完成后将刷新页面…'
+                : appVersion.status === 'checking' ? '正在检查更新…'
+                  : appVersion.status === 'latest' ? '已是最新版本'
+                    : appVersion.status === 'available' ? `发现新版本：${appVersion.latest?.label}`
+                      : appVersion.status === 'error' ? '暂时无法确认最新版本，请联网后重试。' : '尚未检查更新'}
+          </p>
+          {updateError && <p className="field-error" role="alert">{updateError}</p>}
+          <div className="version-actions">
+            <button className="button secondary" disabled={import.meta.env.DEV || appVersion.status === 'checking'}
+              onClick={() => { setUpdateError(''); void appVersion.check(true) }}>
+              <RefreshCw size={18} />检查更新
+            </button>
+            {appVersion.status === 'available' && <button className="button primary" onClick={updateApp}
+              disabled={!!file || exporting || importing || picking}>
+              <Download size={18} />{updating ? '正在更新…' : '立即更新'}
+            </button>}
+          </div>
+          {appVersion.status === 'available' && <p className="version-help">
+            {file || picking ? '请先完成或取消备份导入，再更新应用。'
+              : exporting || importing ? '请等待导入或导出完成后再更新。'
+                : '更新后会刷新当前页面，已保存的票券数据会保留。'}
+          </p>}
+        </section>
         <p className="hint" role="status">
           {offlineReady ? '离线资源已就绪，可断网查看和管理前售券。'
             : '首次联网加载并缓存资源后，可离线使用。'}
         </p>
+        </fieldset>
       </main>
       {confirm && (
         <Sheet

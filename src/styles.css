@@ -1395,6 +1395,43 @@ legend {
 .data-page {
   padding-top: 16px;
 }
+.version-footer {
+  padding: 0 16px 24px;
+  text-align: center;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.version-details {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  font-size: 12px;
+}
+.version-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.version-details dt {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+.version-details dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.version-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.version-section > .version-help {
+  margin: 12px 0 0;
+}
+.version-section > .field-error {
+  color: var(--red-11);
+}
 .local-summary {
   display: flex;
   justify-content: space-between;

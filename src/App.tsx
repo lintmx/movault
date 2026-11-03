@@ -26,9 +26,11 @@ import { MovieDetail } from './MovieDetail'
 import { MovieForm, TicketForm } from './forms'
 import { DataManagement } from './DataManagement'
 import { DataSafety } from './DataSafety'
+import { currentVersion, useAppVersion } from './version'
 import './styles.css'
 
 function App() {
+  const appVersion = useAppVersion()
   const [library, setLibrary] = useState<Library | null>(null)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState('')
@@ -137,7 +139,7 @@ function App() {
     !!(revision || library.movies.length || library.tickets.length)
   let page
   if (section === 'data') {
-    page = <DataManagement library={library} save={save} notify={setToast}
+    page = <DataManagement library={library} save={save} notify={setToast} appVersion={appVersion}
       needsBackup={needsBackup}
       onShowSafety={() => setSafetyOpen(true)}
       onExportingChange={(value) => { exporting.current = value }}
@@ -277,6 +279,7 @@ function App() {
         library={library}
         index={Math.min(movieIndex, Math.max(0, library.movies.length - 1))}
         setIndex={setMovieIndex}
+        updateAvailable={appVersion.status === 'available'}
       />
     )
   }
@@ -324,10 +327,12 @@ function Home({
   library,
   index,
   setIndex,
+  updateAvailable,
 }: {
   library: Library
   index: number
   setIndex: (index: number) => void
+  updateAvailable: boolean
 }) {
   const [touchStart, setTouchStart] = useState<number | null>(null)
   const movie = library.movies[index]
@@ -483,6 +488,12 @@ function Home({
           </EmptyState>
         </main>
       )}
+      <footer className="version-footer">
+        <button className="text-button" onClick={() => navigate('/data')}>
+          {import.meta.env.DEV ? '开发版本' : `版本 ${currentVersion.label}`}
+          {updateAvailable && <span className="primary-text"> · 发现新版本</span>}
+        </button>
+      </footer>
     </>
   )
 }
