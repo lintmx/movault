@@ -1,0 +1,6 @@
+{
+  "biome.enabled": false,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.oxc": "explicit"
+  }
+}
